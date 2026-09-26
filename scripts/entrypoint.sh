@@ -22,7 +22,7 @@ if [ "$PERSIST" = "1" ]; then
   mkdir -p "$HOME" "$WORKSPACE_ROOT"
   echo "[entrypoint] Storage Bucket algilandi -> kalicilik AKTIF (HOME=$HOME)"
 else
-  export HOME="${HOME:-/home/appuser}"
+  export HOME="${HOME:-/home/node}"
   export WORKSPACE_ROOT="$HOME/workspace"
   mkdir -p "$WORKSPACE_ROOT"
   echo "[entrypoint] UYARI: /data baglanmis bir Storage Bucket degil (ya da hic bagli degil)."

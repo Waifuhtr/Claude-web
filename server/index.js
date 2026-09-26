@@ -7,7 +7,7 @@ const auth = require('./auth');
 const { SessionManager, isValidName } = require('./sessions');
 
 const PORT = parseInt(process.env.PORT || '7860', 10);
-const HOME = process.env.HOME || '/home/appuser';
+const HOME = process.env.HOME || '/home/node';
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || path.join(HOME, 'workspace');
 const META_FILE = path.join(HOME, '.cc-web-sessions.json');
 const DEFAULT_SHELL_CMD = process.env.DEFAULT_SHELL_CMD || 'bash -l';

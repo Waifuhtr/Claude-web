@@ -21,8 +21,6 @@ RUN pip3 install --no-cache-dir --break-system-packages uv
 
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN useradd -m -u 1000 -s /bin/bash appuser
-
 WORKDIR /app
 
 COPY package.json ./
@@ -34,12 +32,12 @@ COPY claude-config ./claude-config
 COPY scripts ./scripts
 RUN chmod +x scripts/entrypoint.sh
 
-RUN mkdir -p /home/appuser/workspace \
-    && chown -R appuser:appuser /app /home/appuser
+RUN mkdir -p /home/node/workspace \
+    && chown -R node:node /app /home/node
 
-USER appuser
-ENV HOME=/home/appuser
-ENV PATH="/home/appuser/.local/bin:${PATH}"
+USER node
+ENV HOME=/home/node
+ENV PATH="/home/node/.local/bin:${PATH}"
 
 EXPOSE 7860
 
