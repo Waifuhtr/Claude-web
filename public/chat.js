@@ -13,6 +13,11 @@
     live: $('liveNote'),
     sheet: $('settingsSheet'),
     sheetBackdrop: $('sheetBackdrop'),
+    view: $('chatView'),
+    attachBtn: $('attachBtn'),
+    fileInput: $('fileInput'),
+    attachList: $('attachList'),
+    turnStatus: $('turnStatus'),
   };
 
   const ALL_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -77,6 +82,12 @@
   };
 
   const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const MAX_FILES = 10;
+  const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+  // Large photos are shrunk before upload: Claude sees at most ~2000px anyway
+  // and the API rejects images over 5 MB.
+  const IMAGE_MAX_EDGE = 2000;
+  const IMAGE_MAX_BYTES = 3.5 * 1024 * 1024;
 
   let ws = null;
   let sessionName = null;
@@ -90,6 +101,10 @@
   let sheetView = 'main';
   let confirmBypass = false;
   let mcpState = null;
+  let attachments = [];
+  let attachSeq = 0;
+  let clockOffset = 0;
+  let tickTimer = null;
   let eventCount = 0;
   let dismissedRate = readDismissed();
   let onStatusChange = () => {};
@@ -98,6 +113,67 @@
   const drafts = new Map();
   let retiredDrafts = [];
   let lastTodo = null;
+
+  // ---- image viewer ----
+
+  const lightbox = el('div', 'lightbox');
+  lightbox.hidden = true;
+  lightbox.setAttribute('role', 'dialog');
+  lightbox.setAttribute('aria-label', 'Görsel');
+  const lbImg = el('img', 'lb-img');
+  const lbBar = el('div', 'lb-bar');
+  const lbOpen = el('a', 'lb-btn', 'Yeni sekmede aç');
+  lbOpen.target = '_blank';
+  lbOpen.rel = 'noopener';
+  lbBar.append(lbOpen, iconBtn('✕', 'Kapat', closeLightbox));
+  lightbox.append(lbImg, lbBar);
+  document.body.appendChild(lightbox);
+  // Tap the picture to see it at full size (then scroll around), tap again to fit.
+  lbImg.addEventListener('click', () => lightbox.classList.toggle('zoomed'));
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightbox) closeLightbox();
+  });
+
+  function openLightbox(src, alt) {
+    lbImg.src = src;
+    lbImg.alt = alt || '';
+    lbOpen.href = src;
+    lightbox.classList.remove('zoomed');
+    lightbox.hidden = false;
+  }
+
+  function closeLightbox() {
+    lightbox.hidden = true;
+    lbImg.removeAttribute('src');
+  }
+
+  function mediaUrl(id) {
+    return `/api/media/${encodeURIComponent(sessionName || '')}/${encodeURIComponent(id)}`;
+  }
+
+  function formatSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024).toLocaleString('tr-TR')} KB`;
+    return `${(n / (1024 * 1024)).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} MB`;
+  }
+
+  function thumbButton(src, alt, cls) {
+    const b = el('button', cls);
+    b.type = 'button';
+    b.setAttribute('aria-label', `${alt} — büyüt`);
+    const img = el('img');
+    img.alt = alt;
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('load', () => {
+      if (stickToBottom) scrollToBottom();
+    });
+    img.src = src;
+    b.appendChild(img);
+    b.addEventListener('click', () => openLightbox(img.src, alt));
+    return { button: b, img };
+  }
 
   if (window.marked) window.marked.use({ gfm: true, breaks: false });
   if (window.DOMPurify) {
@@ -439,6 +515,22 @@
       entry.resultEl.hidden = false;
       entry.resultEl.replaceChildren(el('pre', `code${ev.isError ? ' error' : ''}`, ev.content));
     }
+    if (Array.isArray(ev.images) && ev.images.length) renderToolImages(entry, ev.images);
+  }
+
+  // Screenshots stay visible under the tool's header even while it is collapsed.
+  function renderToolImages(entry, images) {
+    const box = el('div', 'tool-images');
+    for (const image of images) {
+      if (!image || !image.id) {
+        box.appendChild(el('div', 'img-missing', 'Görsel çok büyük olduğu için gösterilemedi.'));
+        continue;
+      }
+      const { button, img } = thumbButton(mediaUrl(image.id), 'Ekran görüntüsü', 'tool-img');
+      img.addEventListener('error', () => button.replaceWith(el('div', 'img-missing', 'Görsel artık yok.')));
+      box.appendChild(button);
+    }
+    entry.card.insertBefore(box, entry.card.querySelector('.tool-body'));
   }
 
   function sendPerm(id, payload, actions) {
@@ -612,6 +704,7 @@
     else if (ev.kind === 'plan') buildPlan(card, ev, entry);
     else buildToolPerm(card, ev, entry);
     append(card);
+    updateTurnStatus();
   }
 
   function finishPerm(ev) {
@@ -632,6 +725,7 @@
     if (entry.actions) entry.actions.replaceWith(state);
     else entry.card.appendChild(state);
     entry.actions = null;
+    updateTurnStatus();
   }
 
   function renderResult(ev) {
@@ -647,20 +741,83 @@
       text = '■ Durduruldu';
       cls = 'stopped';
     } else if (ev.ok) {
-      text = `✓ Tamamlandı${ev.durationMs ? ` · ${formatDuration(ev.durationMs)}` : ''}`;
+      text = '✓ Tamamlandı';
       cls = 'ok';
     } else {
       text = `✕ ${ev.error || 'Hata'}${ev.apiErrorStatus ? ` (HTTP ${ev.apiErrorStatus})` : ''}`;
       cls = 'failed';
     }
-    append(el('div', `turn-end ${cls}`, text));
+    const parts = [text];
+    if (ev.durationMs && cls !== 'failed') parts.push(formatDuration(ev.durationMs));
+    const tokens = tokenText(ev.usage);
+    if (tokens) parts.push(tokens);
+    if (!tokens) {
+      append(el('div', `turn-end ${cls}`, parts.join(' · ')));
+      return;
+    }
+    // Tap the line for the exact numbers.
+    const box = el('details', `turn-end ${cls}`);
+    box.appendChild(el('summary', null, parts.join(' · ')));
+    const u = ev.usage;
+    const exact = (n) => Math.round(n || 0).toLocaleString('tr-TR');
+    const rows = [
+      `Giriş: ${exact(u.input)} yeni · ${exact(u.cacheRead)} önbellekten · ${exact(u.cacheWrite)} önbelleğe yazılan`,
+      `Çıkış: ${exact(u.output)} (düşünme dahil)`,
+      `Toplam: ${exact(u.input + u.cacheRead + u.cacheWrite + u.output)} token`,
+    ];
+    if (Array.isArray(ev.models) && ev.models.length) rows.push(`Model: ${ev.models.join(', ')}`);
+    if (ev.apiKey && ev.cost) rows.push(`Tahmini API maliyeti: $${ev.cost.toLocaleString('tr-TR', { maximumFractionDigits: 4 })}`);
+    const detail = el('div', 'usage-detail');
+    for (const row of rows) detail.appendChild(el('div', null, row));
+    box.appendChild(detail);
+    box.addEventListener('toggle', () => {
+      if (box.open) detail.scrollIntoView({ block: 'nearest' });
+    });
+    append(box);
+  }
+
+  function fmtTokens(n) {
+    const v = Math.max(0, Math.round(n || 0));
+    if (v < 1000) return String(v);
+    if (v < 1e6) return `${(v / 1000).toLocaleString('tr-TR', { maximumFractionDigits: v < 100000 ? 1 : 0 })}k`;
+    return `${(v / 1e6).toLocaleString('tr-TR', { maximumFractionDigits: 1 })}M`;
+  }
+
+  // "↑" everything Claude read (new + cached prompt), "↓" everything it wrote.
+  function tokenText(u) {
+    if (!u) return '';
+    const input = (u.input || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0);
+    if (!input && !u.output) return '';
+    return `↑ ${fmtTokens(input)} · ↓ ${fmtTokens(u.output)} token`;
+  }
+
+  function fileChip(file) {
+    const chip = el('div', 'file-chip');
+    chip.title = file.path || file.name;
+    chip.append(el('span', 'file-name', file.name), el('span', 'file-meta', formatSize(file.size)));
+    return chip;
+  }
+
+  function renderMsgFiles(files) {
+    const box = el('div', 'msg-files');
+    for (const file of files) {
+      if (file.mediaId) {
+        const { button, img } = thumbButton(mediaUrl(file.mediaId), file.name, 'msg-thumb');
+        img.addEventListener('error', () => button.replaceWith(fileChip(file)));
+        box.appendChild(button);
+      } else {
+        box.appendChild(fileChip(file));
+      }
+    }
+    return box;
   }
 
   function renderEvent(ev, live) {
     switch (ev.t) {
       case 'user': {
         const node = el('div', 'msg user');
-        node.appendChild(el('div', 'bubble', ev.text));
+        if (Array.isArray(ev.attachments) && ev.attachments.length) node.appendChild(renderMsgFiles(ev.attachments));
+        if (ev.text) node.appendChild(el('div', 'bubble', ev.text));
         append(node);
         break;
       }
@@ -768,12 +925,41 @@
 
   function updateComposer() {
     const hasText = els.input.value.trim().length > 0;
+    const busy = attachments.some((a) => a.status === 'preparing' || a.status === 'uploading');
+    const ready = attachments.some((a) => a.status === 'ready');
     const running = !!(status && status.running);
-    const stopMode = running && !hasText;
+    const stopMode = running && !hasText && !ready && !busy;
     els.send.classList.toggle('stop', stopMode);
     els.send.textContent = stopMode ? '■' : '↑';
-    els.send.setAttribute('aria-label', stopMode ? 'Durdur' : 'Gönder');
-    els.send.disabled = !connected || (!hasText && !running);
+    els.send.setAttribute('aria-label', stopMode ? 'Durdur' : busy ? 'Dosyalar yükleniyor' : 'Gönder');
+    els.send.disabled = !connected || busy || (!hasText && !ready && !running);
+    els.attachBtn.disabled = !sessionName;
+  }
+
+  // ---- live "working" line: elapsed time and tokens of the running turn ----
+
+  function formatElapsed(ms) {
+    const sec = Math.max(0, Math.floor(ms / 1000));
+    return sec < 60 ? `${sec} sn` : `${Math.floor(sec / 60)} dk ${sec % 60} sn`;
+  }
+
+  function updateTurnStatus() {
+    const running = !!(status && status.running);
+    if (!running) {
+      els.turnStatus.hidden = true;
+      if (tickTimer) clearInterval(tickTimer);
+      tickTimer = null;
+      return;
+    }
+    if (!tickTimer) tickTimer = setInterval(updateTurnStatus, 1000);
+    const waiting = [...permCards.values()].some((p) => p.actions);
+    const turn = status.turn;
+    const parts = [waiting ? 'Onay bekliyor' : 'Çalışıyor'];
+    if (turn && turn.startedAt) parts.push(formatElapsed(Date.now() - clockOffset - turn.startedAt));
+    const tokens = tokenText(turn);
+    if (tokens) parts.push(tokens);
+    els.turnStatus.replaceChildren(el('span', `ts-dot${waiting ? ' waiting' : ''}`), el('span', 'ts-text', parts.join(' · ')));
+    els.turnStatus.hidden = false;
   }
 
   function formatReset(ts) {
@@ -824,8 +1010,10 @@
 
   function applyStatus(next) {
     status = next;
+    if (typeof next.now === 'number') clockOffset = Date.now() - next.now;
     updatePills();
     updateComposer();
+    updateTurnStatus();
     updateRate(next.rateLimit);
     if (!els.sheet.hidden) renderSheet();
     onStatusChange(next);
@@ -1093,7 +1281,9 @@
   els.modePill.addEventListener('click', () => openSheet('mode'));
   els.sheetBackdrop.addEventListener('click', closeSheet);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeSheet();
+    if (e.key !== 'Escape') return;
+    if (!lightbox.hidden) closeLightbox();
+    else closeSheet();
   });
 
   // ---- composer ----
@@ -1105,17 +1295,239 @@
 
   function submit() {
     const text = els.input.value.trim();
-    if (!text) {
+    if (attachments.some((a) => a.status === 'preparing' || a.status === 'uploading')) return;
+    const ready = attachments.filter((a) => a.status === 'ready');
+    if (!text && !ready.length) {
       if (status && status.running) send({ type: 'stop' });
       return;
     }
-    if (send({ type: 'send', text })) {
+    if (send({ type: 'send', text, attachments: ready.map((a) => a.info.id) })) {
       els.input.value = '';
+      clearAttachments();
       autoGrow();
       updateComposer();
       scrollToBottom();
     }
   }
+
+  // ---- attachments: pick / paste / drop, upload right away, send by id ----
+
+  function canvasBlob(canvas, type, quality) {
+    return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+  }
+
+  async function prepareFile(file) {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type) || typeof createImageBitmap !== 'function') return file;
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      return file;
+    }
+    const edge = Math.max(bitmap.width, bitmap.height);
+    if (edge <= IMAGE_MAX_EDGE && file.size <= IMAGE_MAX_BYTES) {
+      if (bitmap.close) bitmap.close();
+      return file;
+    }
+    const scale = Math.min(1, IMAGE_MAX_EDGE / edge);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    let blob = null;
+    let ext = '.jpg';
+    if (file.type === 'image/png') {
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      blob = await canvasBlob(canvas, 'image/png');
+      ext = '.png';
+    }
+    if (!blob || blob.size > IMAGE_MAX_BYTES) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      blob = await canvasBlob(canvas, 'image/jpeg', 0.88);
+      ext = '.jpg';
+    }
+    if (bitmap.close) bitmap.close();
+    if (!blob) return file;
+    const base = (file.name || 'gorsel').replace(/\.[^.]+$/, '') || 'gorsel';
+    return new File([blob], base + ext, { type: blob.type });
+  }
+
+  function uploadBlob(item, file, session) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      item.xhr = xhr;
+      xhr.open('POST', `/api/upload/${encodeURIComponent(session)}`);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name || 'dosya'));
+      xhr.setRequestHeader('X-File-Type', file.type || '');
+      xhr.upload.addEventListener('progress', (e) => {
+        if (!e.lengthComputable) return;
+        item.progress = e.loaded / e.total;
+        renderAttachList();
+      });
+      xhr.addEventListener('load', () => {
+        item.xhr = null;
+        if (xhr.status === 401) {
+          window.location.href = '/login.html';
+          return;
+        }
+        let body = null;
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          body = null;
+        }
+        if (xhr.status >= 200 && xhr.status < 300 && body && body.id) resolve(body);
+        else reject(new Error((body && body.error) || `Yüklenemedi (HTTP ${xhr.status})`));
+      });
+      xhr.addEventListener('error', () => {
+        item.xhr = null;
+        reject(new Error('Yükleme başarısız, bağlantını kontrol et.'));
+      });
+      xhr.addEventListener('abort', () => {
+        item.xhr = null;
+        reject(new Error('İptal edildi'));
+      });
+      xhr.send(file);
+    });
+  }
+
+  async function startUpload(item) {
+    const session = sessionName;
+    const file = await prepareFile(item.file);
+    if (!attachments.includes(item) || session !== sessionName) return;
+    item.name = file.name || item.name;
+    item.size = file.size;
+    item.status = 'uploading';
+    renderAttachList();
+    try {
+      const info = await uploadBlob(item, file, session);
+      if (!attachments.includes(item) || session !== sessionName) {
+        fetch(`/api/upload/${encodeURIComponent(session)}/${encodeURIComponent(info.id)}`, { method: 'DELETE' }).catch(() => {});
+        return;
+      }
+      item.info = info;
+      item.status = 'ready';
+    } catch (err) {
+      if (!attachments.includes(item)) return;
+      item.status = 'error';
+      item.error = err.message;
+    }
+    renderAttachList();
+    updateComposer();
+  }
+
+  function addFiles(list) {
+    if (!sessionName) return;
+    for (const file of Array.from(list || [])) {
+      if (attachments.length >= MAX_FILES) {
+        showLive(`Bir mesaja en fazla ${MAX_FILES} dosya eklenebilir.`, 4000);
+        break;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showLive(`${file.name}: dosya çok büyük (en fazla 50 MB).`, 5000);
+        continue;
+      }
+      const item = {
+        key: ++attachSeq,
+        file,
+        name: file.name || 'dosya',
+        size: file.size,
+        isImage: /^image\//.test(file.type),
+        status: 'preparing',
+        progress: 0,
+        info: null,
+        error: '',
+        previewUrl: null,
+        xhr: null,
+      };
+      if (item.isImage) item.previewUrl = URL.createObjectURL(file);
+      attachments.push(item);
+      startUpload(item);
+    }
+    renderAttachList();
+    updateComposer();
+  }
+
+  function removeAttachment(item) {
+    attachments = attachments.filter((a) => a !== item);
+    if (item.xhr) item.xhr.abort();
+    if (item.info && sessionName) {
+      fetch(`/api/upload/${encodeURIComponent(sessionName)}/${encodeURIComponent(item.info.id)}`, { method: 'DELETE' }).catch(() => {});
+    }
+    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    renderAttachList();
+    updateComposer();
+  }
+
+  // After sending the files belong to the message; only local previews go.
+  function clearAttachments() {
+    for (const item of attachments) {
+      if (item.xhr) item.xhr.abort();
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    }
+    attachments = [];
+    renderAttachList();
+  }
+
+  function renderAttachList() {
+    els.attachList.hidden = attachments.length === 0;
+    els.attachList.replaceChildren();
+    for (const item of attachments) {
+      const chip = el('div', `attach-chip ${item.status}${item.previewUrl ? ' image' : ''}`);
+      chip.title = item.status === 'error' ? `${item.name}: ${item.error}` : item.name;
+      if (item.previewUrl) {
+        const img = el('img');
+        img.src = item.previewUrl;
+        img.alt = item.name;
+        chip.appendChild(img);
+      } else {
+        const text = el('span', 'attach-text');
+        text.append(el('span', 'attach-name', item.name), el('span', 'attach-meta', item.status === 'error' ? 'Hata' : formatSize(item.size)));
+        chip.appendChild(text);
+      }
+      if (item.status === 'preparing' || item.status === 'uploading') {
+        const bar = el('span', 'attach-progress');
+        bar.style.width = `${Math.round((item.status === 'uploading' ? item.progress : 0) * 100)}%`;
+        chip.appendChild(bar);
+      }
+      if (item.status === 'error' && item.previewUrl) chip.appendChild(el('span', 'attach-badge', '!'));
+      const remove = btn('✕', 'attach-remove', () => removeAttachment(item));
+      remove.setAttribute('aria-label', `${item.name} dosyasını kaldır`);
+      chip.appendChild(remove);
+      els.attachList.appendChild(chip);
+    }
+  }
+
+  els.attachBtn.addEventListener('click', () => els.fileInput.click());
+  els.fileInput.addEventListener('change', () => {
+    addFiles(els.fileInput.files);
+    els.fileInput.value = '';
+  });
+  els.input.addEventListener('paste', (e) => {
+    const files = e.clipboardData && e.clipboardData.files;
+    if (files && files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  });
+  const hasFiles = (e) => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
+  els.view.addEventListener('dragover', (e) => {
+    if (!hasFiles(e) || !sessionName) return;
+    e.preventDefault();
+    els.view.classList.add('dragging');
+  });
+  els.view.addEventListener('dragleave', (e) => {
+    if (!els.view.contains(e.relatedTarget)) els.view.classList.remove('dragging');
+  });
+  els.view.addEventListener('drop', (e) => {
+    els.view.classList.remove('dragging');
+    if (!hasFiles(e) || !sessionName) return;
+    e.preventDefault();
+    addFiles(e.dataTransfer.files);
+  });
 
   els.input.addEventListener('input', () => {
     autoGrow();
@@ -1175,6 +1587,13 @@
       case 'rate':
         if (status) status.rateLimit = msg.info;
         updateRate(msg.info);
+        break;
+      case 'usage':
+        if (status && status.running) {
+          status.turn = msg.turn;
+          if (typeof msg.now === 'number') clockOffset = Date.now() - msg.now;
+          updateTurnStatus();
+        }
         break;
       case 'mcp':
         mcpState = { live: !!msg.live, servers: Array.isArray(msg.servers) ? msg.servers : [], error: msg.error || '' };
@@ -1258,12 +1677,15 @@
     }
     connected = false;
     status = null;
+    clearAttachments();
     sessionName = null;
     closeSheet();
+    closeLightbox();
     hideLive();
     els.rate.hidden = true;
     resetView();
     updateComposer();
+    updateTurnStatus();
   }
 
   window.ChatView = {

@@ -57,14 +57,20 @@
           <button type="button" class="jump-btn" id="jumpBtn" aria-label="En alta in" hidden>↓</button>
           <div class="rate-banner" id="rateBanner" hidden></div>
           <div class="live-note" id="liveNote" hidden></div>
+          <div class="turn-status" id="turnStatus" aria-live="polite" hidden></div>
           <form class="composer" id="composer">
+            <div class="attach-list" id="attachList" hidden></div>
             <textarea id="promptInput" rows="1" placeholder="Claude'a bir şey yaz…" enterkeyhint="enter"></textarea>
             <div class="composer-row">
+              <button type="button" class="attach-btn" id="attachBtn" aria-label="Dosya veya görsel ekle" title="Dosya veya görsel ekle">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+              </button>
               <button type="button" class="pill" id="modelPill" aria-label="Model ve effort seç"></button>
               <button type="button" class="pill" id="modePill" aria-label="İzin modunu seç"></button>
               <span class="spacer"></span>
               <button type="submit" class="send-btn" id="sendBtn" aria-label="Gönder" disabled>↑</button>
             </div>
+            <input type="file" id="fileInput" multiple hidden />
           </form>
         </div>
       </section>

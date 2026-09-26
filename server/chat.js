@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Transform } = require('stream');
+const { pipeline } = require('stream/promises');
 
 const SDK_MODULE = '@anthropic-ai/claude-agent-sdk';
 
@@ -17,6 +19,19 @@ const IDLE_CLOSE_MS = 30 * 60 * 1000;
 const DRAFT_FLUSH_MS = 60;
 const STOP_KILL_MS = 8000;
 const MCP_STATUS_TIMEOUT_MS = 10000;
+const USAGE_FLUSH_MS = 400;
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_ATTACHMENTS = 10;
+const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+// The API rejects larger images; bigger ones are still saved as plain files.
+const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+const MAX_MEDIA_FILES = 300;
+const MAX_IMAGES_PER_RESULT = 8;
+const SESSION_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const MEDIA_FILE_RE = /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/;
+const MEDIA_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 
 const NO_XHIGH = ['low', 'medium', 'high', 'max'];
 
@@ -87,16 +102,102 @@ function capInput(input) {
   return out;
 }
 
+// Images in tool results are stored and shown separately (see extractImages).
 function toolResultText(content) {
   if (typeof content === 'string') return truncate(content, MAX_TOOL_TEXT);
   if (!Array.isArray(content)) return '';
-  const parts = content.map((block) => {
-    if (!block) return '';
-    if (block.type === 'text') return block.text || '';
-    if (block.type === 'image') return '[görsel]';
-    return '';
-  });
+  const parts = content.map((block) => (block && block.type === 'text' ? block.text || '' : ''));
   return truncate(parts.filter(Boolean).join('\n'), MAX_TOOL_TEXT);
+}
+
+// Trust the bytes, not the declared type: only real raster images are shown
+// or sent to Claude as images (never SVG/HTML that merely claims to be one).
+function sniffImage(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0x89 && buf.toString('ascii', 1, 4) === 'PNG') return 'image/png';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  const six = buf.toString('ascii', 0, 6);
+  if (six === 'GIF87a' || six === 'GIF89a') return 'image/gif';
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+function safeFileName(raw) {
+  let name = String(raw || '').normalize('NFC');
+  name = name.split(/[\\/]/).pop();
+  name = name.replace(/[\u0000-\u001f\u007f:*?"<>|]/g, '_').trim().replace(/^\.+/, '');
+  if (!name) name = 'dosya';
+  if (name.length > 120) {
+    const ext = path.extname(name).slice(0, 16);
+    name = name.slice(0, 120 - ext.length) + ext;
+  }
+  return name;
+}
+
+function uniqueName(dir, name) {
+  const ext = path.extname(name);
+  const base = name.slice(0, name.length - ext.length);
+  let candidate = name;
+  for (let i = 2; fs.existsSync(path.join(dir, candidate)); i += 1) candidate = `${base} (${i})${ext}`;
+  return candidate;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function num(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+const USAGE_KEYS = ['input', 'output', 'cacheRead', 'cacheWrite', 'cost'];
+
+function tokenSum(u) {
+  return u ? u.input + u.output + u.cacheRead + u.cacheWrite : 0;
+}
+
+// modelUsage is a running total per model for the whole query() call.
+function totalsFromModelUsage(modelUsage) {
+  const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, models: {} };
+  if (!modelUsage || typeof modelUsage !== 'object') return totals;
+  for (const [model, u] of Object.entries(modelUsage)) {
+    if (!u || typeof u !== 'object') continue;
+    const entry = {
+      input: num(u.inputTokens),
+      output: num(u.outputTokens),
+      cacheRead: num(u.cacheReadInputTokens),
+      cacheWrite: num(u.cacheCreationInputTokens),
+      cost: num(u.costUSD),
+    };
+    totals.models[model] = entry;
+    for (const key of USAGE_KEYS) totals[key] += entry[key];
+  }
+  return totals;
+}
+
+// This turn's share of a running total; null when the totals went backwards
+// (e.g. a /clear or compaction reset them), so the caller falls back.
+function usageDelta(current, base) {
+  const delta = { models: [] };
+  for (const key of USAGE_KEYS) {
+    delta[key] = current[key] - num(base[key]);
+    if (delta[key] < -1e-9) return null;
+  }
+  const baseModels = base.models || {};
+  for (const [model, entry] of Object.entries(current.models)) {
+    const before = baseModels[model] || {};
+    const beforeSum = num(before.input) + num(before.output) + num(before.cacheRead) + num(before.cacheWrite);
+    if (tokenSum(entry) > beforeSum) delta.models.push(model);
+  }
+  return delta;
 }
 
 function summarizeMcp(server) {
@@ -199,6 +300,10 @@ class ChatSession {
     this.currentMessageId = null;
     this.lastInit = null;
     this.idleTimer = null;
+    this.mediaDir = path.join(this.dir, 'media');
+    this.uploads = new Map();
+    this.turn = null;
+    this.usageTimer = null;
     this.seq = 0;
     this.state = this.loadState();
     this.events = this.loadEvents();
@@ -206,10 +311,11 @@ class ChatSession {
 
   loadState() {
     const saved = readJson(this.stateFile, null);
-    if (!saved) return { sessionId: null, settings: { ...this.manager.defaults } };
+    if (!saved) return { sessionId: null, settings: { ...this.manager.defaults }, usageBase: null };
     return {
       sessionId: typeof saved.sessionId === 'string' ? saved.sessionId : null,
       settings: this.manager.normalize(saved.settings),
+      usageBase: saved.usageBase && typeof saved.usageBase === 'object' ? saved.usageBase : null,
     };
   }
 
@@ -288,6 +394,8 @@ class ChatSession {
       rateLimit: this.manager.rateLimit,
       canBypass: this.manager.canBypass,
       cwd: this.cwd,
+      turn: this.running ? this.publicTurn() : null,
+      now: Date.now(),
     };
   }
 
@@ -317,7 +425,7 @@ class ChatSession {
     const fail = (err) => this.addEvent({ t: 'error', message: errMessage(err) });
     switch (msg.type) {
       case 'send':
-        this.send(typeof msg.text === 'string' ? msg.text : '').catch(fail);
+        this.send(typeof msg.text === 'string' ? msg.text : '', msg.attachments).catch(fail);
         break;
       case 'stop':
         this.stop().catch(fail);
@@ -345,17 +453,24 @@ class ChatSession {
     }
   }
 
-  async send(text) {
+  async send(text, attachmentIds) {
     const prompt = text.trim();
-    if (!prompt) return;
     if (prompt.length > MAX_PROMPT_CHARS) {
       this.addEvent({ t: 'error', message: 'Mesaj çok uzun.' });
       return;
     }
+    const files = this.takeUploads(attachmentIds);
+    if (!prompt && !files.length) return;
     const uuid = crypto.randomUUID();
-    this.addEvent({ t: 'user', text: prompt, uuid });
-    const message = { type: 'user', message: { role: 'user', content: prompt }, parent_tool_use_id: null, uuid };
+    const event = { t: 'user', text: prompt, uuid };
+    if (files.length) {
+      event.attachments = files.map((f) => ({ name: f.name, path: f.path, size: f.size, image: f.image, mediaId: f.mediaId }));
+    }
+    this.addEvent(event);
+    const content = this.buildUserContent(prompt, files);
+    const message = { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, uuid };
     this.unanswered.push(message);
+    if (!this.running) this.startTurn();
     this.running = true;
     this.clearIdle();
     this.broadcastStatus();
@@ -436,7 +551,7 @@ class ChatSession {
         // few buffered frames; they must not leak into the next conversation.
         if (run.closing) continue;
         if (msg && msg.type === 'system' && msg.subtype === 'init') run.sawInit = true;
-        this.handleSdkMessage(msg);
+        this.handleSdkMessage(msg, run);
       }
     } catch (err) {
       if (!run.closing) failure = err;
@@ -471,11 +586,12 @@ class ChatSession {
     this.unanswered = [];
     if (this.running) {
       this.running = false;
+      this.turn = null;
       this.broadcastStatus();
     }
   }
 
-  handleSdkMessage(msg) {
+  handleSdkMessage(msg, run) {
     if (!msg || typeof msg !== 'object') return;
     switch (msg.type) {
       case 'system':
@@ -491,7 +607,7 @@ class ChatSession {
         this.handleUser(msg);
         break;
       case 'result':
-        this.handleResult(msg);
+        this.handleResult(msg, run);
         break;
       case 'rate_limit_event':
         this.manager.setRateLimit(msg.rate_limit_info || null);
@@ -540,6 +656,7 @@ class ChatSession {
   }
 
   handleStreamEvent(msg) {
+    this.trackUsage(msg);
     if (msg.parent_tool_use_id) return;
     const ev = msg.event;
     if (!ev) return;
@@ -638,18 +755,21 @@ class ChatSession {
     if (!Array.isArray(content)) return;
     for (const block of content) {
       if (block && block.type === 'tool_result') {
-        this.addEvent({
+        const event = {
           t: 'tool_result',
           id: block.tool_use_id,
           content: toolResultText(block.content),
           isError: !!block.is_error,
           parent: msg.parent_tool_use_id || null,
-        });
+        };
+        const images = this.extractImages(block.content);
+        if (images.length) event.images = images;
+        this.addEvent(event);
       }
     }
   }
 
-  handleResult(msg) {
+  handleResult(msg, run) {
     this.clearDrafts(true);
     const ok = msg.subtype === 'success' && !msg.is_error;
     const event = {
@@ -659,6 +779,14 @@ class ChatSession {
       durationMs: msg.duration_ms,
       numTurns: msg.num_turns,
     };
+    const usage = this.turnUsage(msg, run);
+    // The cost estimate only means money when an API key pays for the calls.
+    if (this.lastInit && this.lastInit.auth && this.lastInit.auth !== 'none') event.apiKey = true;
+    if (usage) {
+      event.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite };
+      if (usage.cost > 0) event.cost = Math.round(usage.cost * 1e6) / 1e6;
+      if (usage.models && usage.models.length) event.models = usage.models;
+    }
     if (this.stopRequested) {
       event.stopped = true;
       this.stopRequested = false;
@@ -670,11 +798,280 @@ class ChatSession {
     this.addEvent(event);
     if (!msg.queued_turn_count) {
       this.running = false;
+      this.turn = null;
       this.unanswered = [];
       this.seenToolIds.clear();
       this.scheduleIdle();
+    } else {
+      this.startTurn();
     }
     this.broadcastStatus();
+  }
+
+  // ---- per-turn time and token accounting ----
+
+  startTurn() {
+    this.turn = {
+      startedAt: Date.now(),
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      output: 0,
+      outputs: new Map(),
+      current: new Map(),
+      chars: new Map(),
+      exact: new Set(),
+    };
+  }
+
+  publicTurn() {
+    const t = this.turn;
+    if (!t) return null;
+    return { startedAt: t.startedAt, input: t.input, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite, output: t.output };
+  }
+
+  // Live counter from the stream: every API call starts with its input usage
+  // (message_start) and ends with its exact output count (message_delta); in
+  // between the output is estimated from the streamed text (~4 chars a token).
+  trackUsage(msg) {
+    const t = this.turn;
+    const ev = msg.event;
+    if (!t || !ev) return;
+    const stream = msg.parent_tool_use_id || 'main';
+    if (ev.type === 'message_start' && ev.message) {
+      const u = ev.message.usage || {};
+      t.input += num(u.input_tokens);
+      t.cacheRead += num(u.cache_read_input_tokens);
+      t.cacheWrite += num(u.cache_creation_input_tokens);
+      const id = ev.message.id || `${stream}:${t.outputs.size}`;
+      t.current.set(stream, id);
+      t.outputs.set(id, num(u.output_tokens));
+    } else if (ev.type === 'content_block_delta' && ev.delta) {
+      const id = t.current.get(stream);
+      if (id === undefined || t.exact.has(id)) return;
+      const d = ev.delta;
+      const chars = String(d.text || d.thinking || d.partial_json || '').length;
+      if (!chars) return;
+      t.chars.set(id, (t.chars.get(id) || 0) + chars);
+      t.outputs.set(id, Math.max(t.outputs.get(id) || 0, Math.ceil(t.chars.get(id) / 4)));
+    } else if (ev.type === 'message_delta' && ev.usage && typeof ev.usage.output_tokens === 'number') {
+      const id = t.current.get(stream);
+      if (id === undefined) return;
+      t.outputs.set(id, ev.usage.output_tokens);
+      t.exact.add(id);
+    } else {
+      return;
+    }
+    let output = 0;
+    for (const value of t.outputs.values()) output += value;
+    t.output = output;
+    if (!this.usageTimer) {
+      this.usageTimer = setTimeout(() => {
+        this.usageTimer = null;
+        if (this.turn) this.broadcast({ type: 'usage', turn: this.publicTurn(), now: Date.now() });
+      }, USAGE_FLUSH_MS);
+    }
+  }
+
+  // Final numbers for a turn: the change in the SDK's running per-model totals
+  // (covers subagents too). A resumed session starts from the totals saved in
+  // its transcript, so the last totals we saw are kept in state.json as the
+  // baseline. Falls back to the main-loop usage, then to the live counter.
+  turnUsage(msg, run) {
+    const cumulative = totalsFromModelUsage(msg.modelUsage);
+    let turn = null;
+    if (tokenSum(cumulative) > 0) {
+      let base = run ? run.usageBase : undefined;
+      if (base === undefined) base = run && run.resumedFrom ? this.state.usageBase : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, models: {} };
+      if (base) turn = usageDelta(cumulative, base);
+      if (run) run.usageBase = cumulative;
+      this.state.usageBase = cumulative;
+      this.saveState();
+    }
+    if (tokenSum(turn) > 0) return turn;
+    const main = msg.usage || {};
+    const fromMain = {
+      input: num(main.input_tokens),
+      output: num(main.output_tokens),
+      cacheRead: num(main.cache_read_input_tokens),
+      cacheWrite: num(main.cache_creation_input_tokens),
+      cost: 0,
+      models: [],
+    };
+    if (tokenSum(fromMain) > 0) return fromMain;
+    const live = this.publicTurn();
+    return tokenSum(live) > 0 ? { ...live, cost: 0, models: [] } : null;
+  }
+
+  // ---- images and uploads ----
+
+  saveMedia(buffer, mediaType) {
+    const ext = MEDIA_EXT[mediaType];
+    if (!ext) return null;
+    try {
+      fs.mkdirSync(this.mediaDir, { recursive: true });
+      const id = `${crypto.randomUUID()}.${ext}`;
+      fs.writeFileSync(path.join(this.mediaDir, id), buffer);
+      this.pruneMedia();
+      return id;
+    } catch (err) {
+      console.error('[chat] gorsel kaydedilemedi:', err.message);
+      return null;
+    }
+  }
+
+  pruneMedia() {
+    let files;
+    try {
+      files = fs.readdirSync(this.mediaDir);
+    } catch {
+      return;
+    }
+    if (files.length <= MAX_MEDIA_FILES) return;
+    const dated = files.map((f) => {
+      try {
+        return { f, t: fs.statSync(path.join(this.mediaDir, f)).mtimeMs };
+      } catch {
+        return { f, t: 0 };
+      }
+    });
+    dated.sort((a, b) => a.t - b.t);
+    for (const { f } of dated.slice(0, dated.length - MAX_MEDIA_FILES)) {
+      fs.rmSync(path.join(this.mediaDir, f), { force: true });
+    }
+  }
+
+  // Screenshots (e.g. Playwright's browser_take_screenshot) and images read
+  // by tools arrive as base64 blocks; keep them as files, not in the history.
+  extractImages(content) {
+    const images = [];
+    if (!Array.isArray(content)) return images;
+    for (const block of content) {
+      if (images.length >= MAX_IMAGES_PER_RESULT) break;
+      if (!block || block.type !== 'image' || !block.source || block.source.type !== 'base64') continue;
+      const data = block.source.data;
+      if (typeof data !== 'string') continue;
+      if (data.length > Math.ceil((MAX_MEDIA_BYTES * 4) / 3) + 4) {
+        images.push({ error: 'too-large' });
+        continue;
+      }
+      const buffer = Buffer.from(data, 'base64');
+      const type = sniffImage(buffer);
+      if (!type) continue;
+      const id = this.saveMedia(buffer, type);
+      if (id) images.push({ id, type });
+    }
+    return images;
+  }
+
+  async saveUpload(req, fileName, declaredType) {
+    const declared = Number(req.headers['content-length']);
+    if (declared > MAX_UPLOAD_BYTES) throw httpError(413, 'Dosya çok büyük (en fazla 50 MB).');
+    this.manager.ensureWorkspace(this.name);
+    const dir = path.join(this.cwd, 'uploads');
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, `.yukleniyor-${crypto.randomUUID()}`);
+    let size = 0;
+    let head = Buffer.alloc(0);
+    const meter = new Transform({
+      transform(chunk, _encoding, callback) {
+        size += chunk.length;
+        if (size > MAX_UPLOAD_BYTES) {
+          callback(httpError(413, 'Dosya çok büyük (en fazla 50 MB).'));
+          return;
+        }
+        if (head.length < 16) head = Buffer.concat([head, chunk.subarray(0, 16 - head.length)]);
+        callback(null, chunk);
+      },
+    });
+    try {
+      await pipeline(req, meter, fs.createWriteStream(tmp, { flags: 'wx' }));
+    } catch (err) {
+      fs.rmSync(tmp, { force: true });
+      throw err.status ? err : httpError(400, 'Yükleme yarıda kesildi.');
+    }
+    if (!size) {
+      fs.rmSync(tmp, { force: true });
+      throw httpError(400, 'Dosya boş.');
+    }
+    const name = uniqueName(dir, safeFileName(fileName));
+    const abs = path.join(dir, name);
+    fs.renameSync(tmp, abs);
+    const imageType = sniffImage(head);
+    let mediaId = null;
+    if (imageType && size <= MAX_MEDIA_BYTES) {
+      try {
+        mediaId = this.saveMedia(fs.readFileSync(abs), imageType);
+      } catch {
+        mediaId = null;
+      }
+    }
+    const typeOk = typeof declaredType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(declaredType);
+    const info = {
+      id: crypto.randomUUID(),
+      name,
+      path: `uploads/${name}`,
+      size,
+      mediaType: imageType || (typeOk ? declaredType : 'application/octet-stream'),
+      image: !!imageType,
+      mediaId,
+    };
+    this.pruneUploads();
+    this.uploads.set(info.id, { ...info, abs, createdAt: Date.now() });
+    return info;
+  }
+
+  pruneUploads() {
+    const cutoff = Date.now() - UPLOAD_TTL_MS;
+    for (const [id, upload] of this.uploads) {
+      if (upload.createdAt < cutoff) this.uploads.delete(id);
+    }
+  }
+
+  // Removing a chip before sending also removes the file it uploaded.
+  deleteUpload(id) {
+    const upload = this.uploads.get(id);
+    if (!upload) return false;
+    this.uploads.delete(id);
+    fs.rmSync(upload.abs, { force: true });
+    if (upload.mediaId) fs.rmSync(path.join(this.mediaDir, upload.mediaId), { force: true });
+    return true;
+  }
+
+  takeUploads(ids) {
+    const files = [];
+    if (!Array.isArray(ids)) return files;
+    for (const id of ids.slice(0, MAX_ATTACHMENTS)) {
+      const upload = typeof id === 'string' ? this.uploads.get(id) : null;
+      if (!upload) continue;
+      this.uploads.delete(id);
+      files.push(upload);
+    }
+    return files;
+  }
+
+  // Images go to Claude as image blocks; every file is also in the working
+  // directory, and the note tells Claude where, so tools can open it.
+  buildUserContent(prompt, files) {
+    if (!files.length) return prompt;
+    const blocks = [];
+    const notes = [];
+    for (const file of files) {
+      let inline = false;
+      if (file.image && file.size <= MAX_INLINE_IMAGE_BYTES) {
+        try {
+          const data = fs.readFileSync(file.abs).toString('base64');
+          blocks.push({ type: 'image', source: { type: 'base64', media_type: file.mediaType, data } });
+          inline = true;
+        } catch {
+          inline = false;
+        }
+      }
+      notes.push(`${file.path} (${inline ? 'image, attached above' : formatBytes(file.size)})`);
+    }
+    const note = `[Attached files, saved in the working directory: ${notes.join(', ')}]`;
+    blocks.push({ type: 'text', text: prompt ? `${prompt}\n\n${note}` : note });
+    return blocks;
   }
 
   requestPermission(toolName, toolInput, opts) {
@@ -802,9 +1199,16 @@ class ChatSession {
     const kill = () => {
       this.closeRun(run, true);
       this.clearDrafts(true);
+      const event = { t: 'result', ok: false, stopped: true, subtype: 'stopped' };
+      const live = this.publicTurn();
+      if (live) {
+        event.durationMs = Date.now() - live.startedAt;
+        if (tokenSum(live) > 0) event.usage = { input: live.input, output: live.output, cacheRead: live.cacheRead, cacheWrite: live.cacheWrite };
+      }
       this.running = false;
+      this.turn = null;
       this.unanswered = [];
-      this.addEvent({ t: 'result', ok: false, stopped: true, subtype: 'stopped' });
+      this.addEvent(event);
       this.broadcastStatus();
     };
     try {
@@ -884,12 +1288,16 @@ class ChatSession {
     this.clearDrafts(false);
     this.clearIdle();
     this.running = false;
+    this.turn = null;
     this.stopRequested = false;
     this.unanswered = [];
     this.seenToolIds.clear();
+    this.uploads.clear();
     this.state.sessionId = null;
+    this.state.usageBase = null;
     this.saveState();
     this.events = [];
+    fs.rmSync(this.mediaDir, { recursive: true, force: true });
     try {
       fs.unlinkSync(this.eventsFile);
     } catch {
@@ -970,6 +1378,22 @@ class ChatManager {
 
   attach(ws, name) {
     this.get(name).attach(ws);
+  }
+
+  upload(name, req, fileName, declaredType) {
+    return this.get(name).saveUpload(req, fileName, declaredType);
+  }
+
+  deleteUpload(name, id) {
+    const session = this.sessions.get(name);
+    return !!(session && session.deleteUpload(String(id)));
+  }
+
+  // Absolute path of a stored image, or null for anything that is not one.
+  mediaPath(name, file) {
+    if (!SESSION_NAME_RE.test(String(name)) || !MEDIA_FILE_RE.test(String(file))) return null;
+    const abs = path.join(this.chatsRoot, name, 'media', file);
+    return fs.existsSync(abs) ? abs : null;
   }
 
   isRunning(name) {

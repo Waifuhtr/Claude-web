@@ -57,6 +57,28 @@ app.get('/vendor/lib/:file', (req, res) => {
   res.sendFile(path.join(NODE_MODULES, rel));
 });
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Chat attachments stream straight to disk, so this route sits before the JSON
+// body parser (an uploaded .json file must not be parsed).
+app.post('/api/upload/:name', auth.requireAuth, async (req, res) => {
+  const { name } = req.params;
+  if (!isValidName(name)) {
+    return res.status(400).json({ error: 'gecersiz isim' });
+  }
+  let fileName = '';
+  try {
+    fileName = decodeURIComponent(req.get('X-File-Name') || '');
+  } catch {
+    fileName = '';
+  }
+  try {
+    res.json(await chatManager.upload(name, req, fileName, req.get('X-File-Type') || ''));
+  } catch (err) {
+    if (!err.status) console.error('[upload]', err.message);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Dosya kaydedilemedi.' });
+  }
+});
+
 app.use(express.json());
 
 app.post('/api/login', (req, res) => {
@@ -87,6 +109,18 @@ app.post('/api/sessions', (req, res) => {
   sessionManager.ensureWorkspace(name);
   sessionManager.touch(name);
   res.json({ ok: true, name });
+});
+
+app.delete('/api/upload/:name/:id', (req, res) => {
+  res.json({ ok: chatManager.deleteUpload(req.params.name, req.params.id) });
+});
+
+// Screenshots and attached images; only sniffed raster images are ever stored.
+app.get('/api/media/:name/:file', (req, res) => {
+  const file = chatManager.mediaPath(req.params.name, req.params.file);
+  if (!file) return res.sendStatus(404);
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=31536000, immutable' });
+  res.sendFile(file);
 });
 
 app.delete('/api/sessions/:name', (req, res) => {

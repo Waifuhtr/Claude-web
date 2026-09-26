@@ -24,6 +24,8 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
     konuşmaya anında uygulanır.
   - İzin istekleri, Claude'un soruları ve plan onayı dokunulabilir kartlar
     olarak gelir.
+  - Mesaja dosya ve görsel eklenebilir; araçların aldığı ekran görüntüleri
+    sohbette görünür. Her yanıtın yanında süre ve harcanan token yazar.
   - Yanıtı ■ ile durdurabilir, ✎ ile yeni sohbet başlatabilirsin. Konuşmalar
     sunucuda saklanır; sayfayı kapatıp açınca kaldığın yerden devam eder.
 - **Terminal sekmesi:** tmux + xterm.js ile gerçek kabuk ve `claude` CLI'si.

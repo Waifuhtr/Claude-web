@@ -515,7 +515,9 @@ button {
 
 .msg.user {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .msg.user .bubble {
@@ -527,6 +529,59 @@ button {
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+/* Attachments inside a sent message */
+.msg-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 85%;
+}
+
+.msg-thumb {
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: zoom-in;
+}
+
+.msg-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.file-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 220px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+
+.file-meta {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .msg.assistant {
@@ -561,6 +616,43 @@ button {
 .turn-end {
   font-size: 12px;
   color: var(--muted);
+}
+
+details.turn-end summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+details.turn-end summary::-webkit-details-marker {
+  display: none;
+}
+
+details.turn-end summary::after {
+  content: '›';
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+
+details.turn-end[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.usage-detail {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
 }
 
 .turn-end.failed {
@@ -871,6 +963,37 @@ button {
   content: '■';
   color: var(--muted);
   font-size: 10px;
+}
+
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.tool-img {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: #fff;
+  cursor: zoom-in;
+}
+
+.tool-img img {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  width: auto;
+  height: auto;
+}
+
+.img-missing {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-style: italic;
 }
 
 .tool-body {
@@ -1237,6 +1360,37 @@ button {
   color: var(--danger-text);
 }
 
+.turn-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 4px 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.ts-dot.waiting {
+  background: var(--warn-text);
+}
+
+.ts-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .live-note {
   padding: 0 4px 6px;
   color: var(--muted);
@@ -1257,6 +1411,150 @@ button {
 
 .composer:focus-within {
   border-color: #3d444d;
+}
+
+.attach-list {
+  display: flex;
+  gap: 8px;
+  padding: 4px 2px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.attach-chip {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 56px;
+  max-width: 200px;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.attach-chip.image {
+  width: 56px;
+}
+
+.attach-chip.image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attach-chip.preparing img,
+.attach-chip.uploading img {
+  opacity: 0.55;
+}
+
+.attach-chip.error {
+  border-color: rgba(248, 81, 73, 0.6);
+}
+
+.attach-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 30px 0 10px;
+}
+
+.attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.attach-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.attach-chip.error .attach-meta {
+  color: var(--danger-text);
+}
+
+.attach-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+
+.attach-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(1, 4, 9, 0.75);
+  color: #fff;
+  font-size: 11px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.attach-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attach-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.attach-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.attach-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.attach-btn:active:not(:disabled) {
+  background: var(--panel-2);
+}
+
+.chat-view.dragging .chat-scroll {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .composer textarea {
@@ -1658,6 +1956,68 @@ button {
   font-size: 12px;
 }
 
+/* ---- Image viewer ---- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 12px 12px;
+  overflow: auto;
+  background: rgba(1, 4, 9, 0.94);
+}
+
+.lb-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+  cursor: zoom-in;
+}
+
+.lightbox.zoomed {
+  display: block;
+  padding: 56px 0 0;
+}
+
+.lightbox.zoomed .lb-img {
+  display: block;
+  max-width: none;
+  max-height: none;
+  margin: 0 auto;
+  cursor: zoom-out;
+}
+
+.lb-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+  background: linear-gradient(rgba(1, 4, 9, 0.85), rgba(1, 4, 9, 0));
+}
+
+.lb-btn {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(22, 27, 34, 0.92);
+  color: var(--text-strong);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.lb-bar .icon-btn {
+  background: rgba(22, 27, 34, 0.92);
+}
+
 /* ---- Terminal ---- */
 .term-container {
   flex: 1;
@@ -1787,8 +2147,14 @@ button {
     padding-right: 8px;
   }
 
-  .msg.user .bubble {
+  .msg.user .bubble,
+  .msg-files {
     max-width: 88%;
+  }
+
+  .msg-thumb {
+    width: 84px;
+    height: 84px;
   }
 
   .perm-actions .btn {

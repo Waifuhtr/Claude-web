@@ -104,6 +104,21 @@ Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/
 - **Durdurma ve yeni sohbet:** Yanıt sürerken gönder düğmesi ■ olur; dokununca
   durur ve o ana kadar yazılanlar kalır. Üst çubuktaki ✎ yeni bir sohbet
   başlatır (klasördeki dosyalar silinmez).
+- **Dosya ve görsel ekleme:** Yazma alanının solundaki ataç düğmesiyle (ya da
+  bilgisayarda yapıştırarak/sürükleyip bırakarak) mesaja en fazla 10 dosya
+  ekleyebilirsiniz (dosya başına 50 MB). Dosyalar oturum klasöründe
+  `uploads/` altına kaydedilir ve Claude'a yolları bildirilir; görselleri
+  Claude doğrudan görür. 2000 pikselden büyük fotoğraflar gönderilmeden önce
+  otomatik küçültülür.
+- **Ekran görüntüleri:** Playwright gibi bir araç ekran görüntüsü aldığında
+  ya da Claude bir görsel dosyasını okuduğunda görsel, aracın kartında
+  görünür; dokununca büyür, bir daha dokununca gerçek boyutta açılır.
+- **Süre ve token:** Claude çalışırken yazma alanının üstünde geçen süre ve
+  harcanan token canlı görünür (onay beklerken "Onay bekliyor" yazar). Her
+  yanıtın sonundaki satırda süre, okunan (↑) ve yazılan (↓) token yazar;
+  satıra dokununca yeni/önbellekten okunan/önbelleğe yazılan token dökümü ve
+  kullanılan model açılır. API key ile çalışıyorsanız tahmini maliyet de
+  görünür.
 - **Kullanım limiti:** Abonelik limitine yaklaşınca yazma alanının üstünde bir
   uyarı ve sıfırlanma saati görünür.
 - Bilgisayarda **Enter** gönderir, **Shift+Enter** yeni satır açar; telefonda
