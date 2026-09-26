@@ -41,4 +41,8 @@ echo "Agent Web terminali. Claude Code'u baslatmak icin: claude"
 EOF
 fi
 
+# Playwright MCP'yi (tarayici) her oturumda ayni ayarlarla kullanilabilir yap:
+# ~/.claude.json icinde kullanici kapsamli tanim. Hata verirse uygulama yine acilir.
+node /app/scripts/setup-mcp.js || echo "[entrypoint] UYARI: MCP varsayilanlari uygulanamadi."
+
 exec node /app/server/index.js

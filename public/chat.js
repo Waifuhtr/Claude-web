@@ -57,6 +57,16 @@
     Agent: 'Alt ajan',
     Skill: 'Yetenek',
   };
+  const MCP_STATUS = { connected: 'Bağlı', failed: 'Hata', 'needs-auth': 'Giriş gerekli', pending: 'Bağlanıyor', disabled: 'Kapalı' };
+  const MCP_SCOPE = {
+    user: 'tüm oturumlar',
+    project: "bu klasörün .mcp.json'u",
+    local: 'sadece bu klasör',
+    claudeai: 'claude.ai bağlayıcısı',
+    managed: 'yönetilen',
+    enterprise: 'yönetilen',
+    plugin: 'eklenti',
+  };
   const INLINE_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
   const SUGGESTIONS = ['Bu klasörde ne var?', 'Bu projeyi bana özetle', 'Basit bir README yaz'];
   // Model output is untrusted (it can echo prompt-injected file contents):
@@ -79,6 +89,7 @@
   let stickToBottom = true;
   let sheetView = 'main';
   let confirmBypass = false;
+  let mcpState = null;
   let eventCount = 0;
   let dismissedRate = readDismissed();
   let onStatusChange = () => {};
@@ -878,6 +889,7 @@
         renderSheet();
       })
     );
+    rows.appendChild(sheetRow('MCP sunucuları', mcpSummary(), refreshMcp));
     body.appendChild(rows);
     const other = models.filter((m) => m.group === 'other');
     if (other.length) {
@@ -934,7 +946,6 @@
       if (init.model) rows.push(['Aktif model', init.model]);
       const auth = init.auth === 'none' ? 'claude.ai girişi (abonelik)' : init.auth === 'ANTHROPIC_API_KEY' ? 'API key' : init.auth || '—';
       rows.push(['Kimlik', auth]);
-      if (init.mcp && init.mcp.length) rows.push(['MCP', init.mcp.map((m) => `${m.name} (${m.status})`).join(', ')]);
       if (init.version) rows.push(['Claude Code', init.version]);
     } else {
       rows.push(['Durum', 'Oturum ilk mesajla başlar']);
@@ -945,6 +956,84 @@
       box.appendChild(row);
     }
     return box;
+  }
+
+  function mcpSummary() {
+    if (!status.init) return '—';
+    const list = status.init.mcp || [];
+    if (!list.length) return 'Yok';
+    const ok = list.filter((m) => m.status === 'connected').length;
+    const bad = list.filter((m) => m.status === 'failed').length;
+    return `${ok}/${list.length} bağlı${bad ? ` · ${bad} hata` : ''}`;
+  }
+
+  function refreshMcp() {
+    sheetView = 'mcp';
+    mcpState = send({ type: 'mcp_status' }) ? null : { live: false, servers: [], error: 'Bağlantı yok, biraz sonra tekrar dene.' };
+    renderSheet();
+  }
+
+  function mcpRow(server) {
+    const row = el('div', 'mcp-row');
+    const text = el('div', 'opt-text');
+    text.appendChild(el('span', 'opt-title', server.name));
+    const meta = [];
+    if (MCP_SCOPE[server.scope]) meta.push(MCP_SCOPE[server.scope]);
+    if (server.status === 'connected' && typeof server.tools === 'number') meta.push(`${server.tools} araç`);
+    if (meta.length) text.appendChild(el('span', 'opt-desc', meta.join(' · ')));
+    if (server.error) text.appendChild(el('span', 'mcp-error', server.error));
+    if (server.status === 'needs-auth') {
+      text.appendChild(el('span', 'opt-desc', 'Giriş için Terminal sekmesinde claude yazıp /mcp komutunu kullan.'));
+    }
+    const side = el('div', 'mcp-side');
+    side.appendChild(el('span', `mcp-badge ${server.status}`, MCP_STATUS[server.status] || server.status || '?'));
+    if (mcpState.live && server.status === 'failed') {
+      side.appendChild(
+        btn('Yeniden bağlan', 'mcp-retry', () => {
+          mcpState = send({ type: 'mcp_reconnect', name: server.name }) ? null : { ...mcpState, error: 'Bağlantı yok, biraz sonra tekrar dene.' };
+          renderSheet();
+        })
+      );
+    }
+    row.append(text, side);
+    return row;
+  }
+
+  function renderSheetMcp(body) {
+    if (!mcpState) {
+      body.appendChild(el('div', 'sheet-note', 'Durum alınıyor…'));
+      return;
+    }
+    if (mcpState.error) body.appendChild(el('div', 'sheet-note error', mcpState.error));
+    if (!mcpState.live) {
+      body.appendChild(
+        el('div', 'sheet-note', mcpState.servers.length
+          ? 'Claude şu an çalışmıyor; liste son başlatmadaki durum. Güncel durum bir sonraki mesajla gelir.'
+          : 'Claude şu an çalışmıyor. MCP sunucuları bir sonraki mesajla başlar.')
+      );
+    }
+    if (mcpState.servers.length) {
+      const g = el('div', 'sheet-group');
+      for (const server of mcpState.servers) g.appendChild(mcpRow(server));
+      body.appendChild(g);
+    } else if (mcpState.live) {
+      body.appendChild(el('div', 'sheet-note', 'Tanımlı MCP sunucusu yok.'));
+    }
+    const running = !!status.running;
+    const restart = sheetOption(
+      "Claude'u yeniden başlat",
+      running ? 'Yanıt sürerken kullanılamaz.' : 'Konuşma korunur; ~/.claude.json ve .mcp.json değişiklikleri bir sonraki mesajla yüklenir.',
+      false,
+      () => {
+        if (status.running) return;
+        send({ type: 'restart' });
+        closeSheet();
+      }
+    );
+    restart.disabled = running;
+    const g = el('div', 'sheet-group');
+    g.appendChild(restart);
+    body.appendChild(g);
   }
 
   function renderSheet() {
@@ -961,11 +1050,14 @@
         })
       );
     }
-    header.appendChild(el('div', 'sheet-title', sheetView === 'effort' ? 'Effort' : sheetView === 'mode' ? 'İzin modu' : 'Model seç'));
-    header.appendChild(el('span', 'sheet-spacer'));
+    const titles = { effort: 'Effort', mode: 'İzin modu', mcp: 'MCP sunucuları' };
+    header.appendChild(el('div', 'sheet-title', titles[sheetView] || 'Model seç'));
+    if (sheetView === 'mcp') header.appendChild(iconBtn('↻', 'Yenile', refreshMcp));
+    else header.appendChild(el('span', 'sheet-spacer'));
     const body = el('div', 'sheet-body');
     if (sheetView === 'effort') renderSheetEffort(body, s);
     else if (sheetView === 'mode') renderSheetMode(body, s);
+    else if (sheetView === 'mcp') renderSheetMcp(body);
     else renderSheetMain(body, s);
     els.sheet.replaceChildren(el('div', 'sheet-handle'), header, body);
   }
@@ -1083,6 +1175,10 @@
       case 'rate':
         if (status) status.rateLimit = msg.info;
         updateRate(msg.info);
+        break;
+      case 'mcp':
+        mcpState = { live: !!msg.live, servers: Array.isArray(msg.servers) ? msg.servers : [], error: msg.error || '' };
+        if (!els.sheet.hidden && sheetView === 'mcp') renderSheet();
         break;
       case 'live':
         showLive(msg.text, 6000);

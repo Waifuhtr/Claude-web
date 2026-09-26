@@ -121,36 +121,76 @@ mount olup olmadığını otomatik algılar (cihaz kimliği karşılaştırması
 algılarsa `HOME`'u `/data/home`'a yönlendirir. Sohbet geçmişi
 `$HOME/.cc-web/chats/` altında tutulur.
 
-## 6. MCP sunucuları ekleme
+## 6. MCP sunucuları
 
-Her yeni oturum klasöründe (`$WORKSPACE_ROOT/<oturum-adı>/.mcp.json`)
-`claude-config/mcp.example.json`'dan kopyalanan bir başlangıç dosyası
-bulunur (varsayılan: sadece `filesystem` sunucusu). Terminalden bu dosyayı
-düzenleyip istediğiniz sunucuyu ekleyebilirsiniz, örneğin:
+### Sunucu listesi nereden geliyor?
+
+Claude Code her oturumun MCP sunucularını dört yerden toplar:
+
+| Nerede | Kapsam | Hangi oturumlarda |
+|---|---|---|
+| `~/.claude.json` → en üstteki `mcpServers` | kullanıcı (`--scope user`) | **tüm oturumlar** |
+| `~/.claude.json` → `projects["<klasör>"].mcpServers` | yerel (`claude mcp add`'in **varsayılanı**) | **sadece o oturumun klasörü** |
+| `<oturum klasörü>/.mcp.json` | proje | o klasör; ilk kullanımda onay ister |
+| claude.ai hesabınızdaki bağlayıcılar (Context7, Firecrawl…) | claude.ai | tüm oturumlar |
+
+Bir oturumda eklediğiniz sunucunun başka oturumda görünmemesinin nedeni
+genelde budur: `claude mcp add` kapsam belirtilmezse sunucuyu sadece o
+klasöre ekler. Tüm oturumlarda olsun istediğiniz sunucuyu kullanıcı
+kapsamıyla ekleyin, örneğin:
+
+```bash
+claude mcp add --scope user github -e GITHUB_PERSONAL_ACCESS_TOKEN=buraya-token -- npx -y @modelcontextprotocol/server-github
+```
+
+Storage Bucket bağlıysa `~/.claude.json` ve oturum klasörleri kalıcıdır; MCP
+tanımları ve onaylar restart'tan sonra da durur.
+
+### Hazır tarayıcı: Playwright MCP
+
+İmajda Google Chrome ve sabit sürümlü `@playwright/mcp` kurulu gelir. Her
+açılışta `scripts/setup-mcp.js`, `~/.claude.json`'a kullanıcı kapsamlı şu
+tanımı yazar; böylece **her oturumda, hiçbir elle ayar yapmadan** tarayıcı
+araçları (`browser_navigate`, `browser_snapshot`, `browser_click`…) hazırdır:
 
 ```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "buraya-token" }
-    }
-  }
+"playwright": {
+  "type": "stdio",
+  "command": "playwright-mcp",
+  "args": ["--browser=chrome", "--headless", "--isolated", "--no-sandbox"]
 }
 ```
 
-Claude Code güvenlik gereği bir klasördeki `.mcp.json` sunucularını ilk kez
-kullanmadan önce onay ister. Sohbet ekranında bu onay ekranı çıkmadığı için,
-yeni bir sunucu ekledikten sonra o oturumun **Terminal** sekmesinde bir kez
-`claude` açıp MCP onay ekranında sunucuları onaylayın. Sunucuların durumunu
-sohbette model düğmesine dokunup en alttaki **MCP** satırından görebilirsiniz
-(yeni ayarlar bir sonraki yeni sohbette ya da sunucu yeniden başlayınca
-yüklenir).
+- `--headless`: Space'te ekran yok.
+- `--no-sandbox`: konteynerlerde Chrome'un kendi sandbox'ı genelde çalışmaz
+  (Playwright MCP, `chrome` kanalında onu varsayılan olarak açar).
+- `--isolated`: tarayıcı profili bellekte tutulur; aynı anda çalışan oturumlar
+  aynı profil klasörü için çakışmaz. Karşılığında tarayıcıdaki girişler
+  (cookie'ler) tarayıcı kapanınca silinir.
+
+Daha önce elle eklenmiş Playwright tanımları (ör. `--browser=chromium` ile,
+klasöre özel olanlar dahil) ilk açılışta bir kez bu tanıma çevrilir; eski dosya
+`~/.claude.json.agentweb-backup` olarak saklanır. Tanımı sonradan kendiniz
+değiştirirseniz ya da `claude mcp remove playwright -s user` ile kaldırırsanız
+uygulama ona bir daha dokunmaz.
+
+### Durumu görme ve yeniden başlatma
+
+Sohbette model düğmesine dokunup **MCP sunucuları** satırını açın: her
+sunucunun durumu (Bağlı / Hata / Giriş gerekli), kapsamı ve hata mesajı
+görünür. Hatalı bir sunucuyu **Yeniden bağlan** ile tekrar deneyebilirsiniz.
+
+MCP ayarları Claude başlarken okunur. `~/.claude.json` ya da `.mcp.json`'ı
+değiştirdikten sonra aynı ekrandaki **Claude'u yeniden başlat**'a dokunun:
+konuşma korunur, bir sonraki mesajla birlikte yeni ayarlar yüklenir.
+
+### Proje `.mcp.json` dosyası ve onay
+
+Her yeni oturum klasörüne `claude-config/mcp.example.json`'dan bir
+`.mcp.json` kopyalanır (varsayılan: sadece `filesystem` sunucusu). Claude Code
+güvenlik gereği bu dosyadaki sunucuları ilk kez kullanmadan önce onay ister;
+sohbet ekranında bu onay penceresi çıkmadığı için yeni bir sunucu ekledikten
+sonra o oturumun **Terminal** sekmesinde bir kez `claude` açıp onaylayın.
 
 API key/token gerektiren sunucular için değeri Space Secret olarak tanımlayıp
 `env` içinde o değişkene referans vermeyi deneyin; çalışmazsa değeri dosyaya
@@ -184,6 +224,9 @@ gidebilir. Pratikte:
 - **Bağlantı koptu uyarısı:** Sayfa kendiliğinden yeniden bağlanır. Oturum
   süresi dolduysa giriş sayfasına yönlendirilirsiniz; `SESSION_SECRET`
   sabitlenmemişse her restart sonrası yeniden giriş gerekir.
+- **Playwright: "Chromium distribution 'chrome' is not found":** Space yeni
+  Dockerfile ile yeniden build edilmemiş. Settings > **Factory rebuild** yapın;
+  Chrome build sırasında kurulur.
 - **Terminalde `claude` bulunamıyor:** Docker imajında `npm install -g
   @anthropic-ai/claude-code` build aşamasında çalışır; build loglarını
   kontrol edin.

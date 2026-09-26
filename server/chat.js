@@ -16,6 +16,7 @@ const MAX_ANSWER_CHARS = 2000;
 const IDLE_CLOSE_MS = 30 * 60 * 1000;
 const DRAFT_FLUSH_MS = 60;
 const STOP_KILL_MS = 8000;
+const MCP_STATUS_TIMEOUT_MS = 10000;
 
 const NO_XHIGH = ['low', 'medium', 'high', 'max'];
 
@@ -96,6 +97,25 @@ function toolResultText(content) {
     return '';
   });
   return truncate(parts.filter(Boolean).join('\n'), MAX_TOOL_TEXT);
+}
+
+function summarizeMcp(server) {
+  const s = server || {};
+  return {
+    name: String(s.name || ''),
+    status: String(s.status || ''),
+    error: s.error ? truncate(String(s.error), 600) : '',
+    scope: String(s.scope || s.source || ''),
+    tools: Array.isArray(s.tools) ? s.tools.length : null,
+  };
+}
+
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function normalizeSettings(s) {
@@ -281,12 +301,12 @@ class ChatSession {
     for (const [key, draft] of this.drafts) {
       ws.send(JSON.stringify({ type: 'draft', key, kind: draft.kind, text: draft.text }));
     }
-    ws.on('message', (raw) => this.handleClientMessage(raw));
+    ws.on('message', (raw) => this.handleClientMessage(raw, ws));
     ws.on('close', () => this.clients.delete(ws));
     ws.on('error', () => this.clients.delete(ws));
   }
 
-  handleClientMessage(raw) {
+  handleClientMessage(raw, ws) {
     let msg;
     try {
       msg = JSON.parse(raw.toString());
@@ -310,6 +330,15 @@ class ChatSession {
         break;
       case 'new_chat':
         this.newChat();
+        break;
+      case 'mcp_status':
+        this.sendMcpStatus(ws).catch(() => {});
+        break;
+      case 'mcp_reconnect':
+        this.reconnectMcp(ws, msg.name).catch(() => {});
+        break;
+      case 'restart':
+        this.restart(ws);
         break;
       default:
         break;
@@ -798,6 +827,55 @@ class ChatSession {
       setTimeout(() => run.abortController.abort(), 5000).unref();
     }
     if (this.run === run) this.run = null;
+  }
+
+  // Live MCP status needs a running Claude process; otherwise the list from the
+  // last start is all there is.
+  async sendMcpStatus(ws, extra) {
+    const run = this.run;
+    const reply = { type: 'mcp', live: false, servers: this.lastInit ? this.lastInit.mcp : [] };
+    if (run && !run.closing) {
+      try {
+        const list = await withTimeout(run.query.mcpServerStatus(), MCP_STATUS_TIMEOUT_MS, 'MCP durumu alınamadı (zaman aşımı).');
+        reply.live = true;
+        reply.servers = Array.isArray(list) ? list.map(summarizeMcp) : [];
+      } catch (err) {
+        reply.error = errMessage(err);
+      }
+    }
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ ...reply, ...(extra || {}) }));
+  }
+
+  async reconnectMcp(ws, name) {
+    const run = this.run;
+    if (!run || run.closing || typeof name !== 'string' || !name || name.length > 200) {
+      await this.sendMcpStatus(ws);
+      return;
+    }
+    let error = null;
+    try {
+      await withTimeout(run.query.reconnectMcpServer(name), MCP_STATUS_TIMEOUT_MS * 3, 'Yeniden bağlanma zaman aşımına uğradı.');
+    } catch (err) {
+      error = errMessage(err);
+    }
+    await this.sendMcpStatus(ws, error ? { error } : null);
+  }
+
+  // MCP servers and settings are read when the Claude process starts. Closing
+  // an idle process makes the next message start a fresh one that resumes the
+  // same conversation with the current ~/.claude.json and .mcp.json.
+  restart(ws) {
+    if (this.running || this.pending.size) {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'live', text: 'Claude çalışırken yeniden başlatılamaz; yanıtın bitmesini bekle ya da durdur.' }));
+      }
+      return;
+    }
+    if (this.run) this.closeRun(this.run, true);
+    this.clearIdle();
+    this.lastInit = null;
+    this.addEvent({ t: 'notice', text: 'Claude yeniden başlatıldı; MCP ve ayar değişiklikleri bir sonraki mesajla yüklenecek.' });
+    this.broadcastStatus();
   }
 
   newChat() {

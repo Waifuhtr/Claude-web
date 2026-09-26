@@ -19,6 +19,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install --no-cache-dir --break-system-packages uv
 
+# Google Chrome: Playwright MCP'nin tarayicisi (/opt/google/chrome/chrome).
+# Kurulumu root ister; bu yuzden calisma aninda degil burada kurulur ve her
+# konteynerde hazir olur. Noto CJK/emoji fontlari, ekran goruntulerinde
+# Japonca/Korece/Cince metinlerin ve emojilerin kutu olarak cikmamasi icin.
+RUN curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends /tmp/chrome.deb fonts-noto-cjk fonts-noto-color-emoji \
+    && rm -f /tmp/chrome.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Playwright MCP sunucusu, surumu sabit. scripts/setup-mcp.js onu tum oturumlar
+# icin `playwright-mcp` komutuyla tanimlar.
+RUN npm install -g @playwright/mcp@0.0.82 && npm cache clean --force
+
 # Terminal sekmesindeki `claude` komutu (giris/login ve elle kullanim icin).
 # Sohbet arayuzu ise package.json'daki Agent SDK'nin kendi Claude Code'unu kullanir;
 # ikisi de ayni ~/.claude giris bilgisini paylasir.

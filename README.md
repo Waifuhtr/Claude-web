@@ -32,7 +32,10 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
 - **Çoklu oturum:** Her oturumun kendi klasörü (`$WORKSPACE_ROOT/<isim>`),
   sohbeti ve terminali olur.
 - **MCP:** Her oturum klasörüne örnek bir `.mcp.json` kopyalanır; eklediğin
-  sunucular hem sohbette hem terminalde kullanılır.
+  sunucular hem sohbette hem terminalde kullanılır. Sunucuların durumu ve
+  "Claude'u yeniden başlat" model menüsündeki **MCP sunucuları** ekranındadır.
+- **Hazır tarayıcı:** İmajda Google Chrome ve Playwright MCP kurulu gelir;
+  her oturumda elle ayar yapmadan web sayfalarında gezinebilir.
 - **Kalıcılık:** `/data` yoluna bir Storage Bucket bağlıysa `HOME` otomatik
   olarak oraya yönlendirilir (giriş bilgisi, sohbet geçmişi, MCP ayarları ve
   proje dosyaları kalıcı olur). Bucket yoksa her yeniden başlatmada sıfırlanır.
