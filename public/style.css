@@ -336,6 +336,37 @@ button {
   width: 100%;
 }
 
+.key-toolbar {
+  display: none;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 6px 8px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.key-toolbar button {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0d1117;
+  color: var(--text);
+  font-size: 14px;
+  font-family: Menlo, Consolas, "Courier New", monospace;
+  cursor: pointer;
+}
+
+.key-toolbar button:active {
+  background: #1c2128;
+  border-color: var(--accent);
+}
+
 .empty-state {
   flex: 1;
   display: flex;
@@ -398,5 +429,9 @@ button {
 
   .term-container {
     padding: 4px;
+  }
+
+  .key-toolbar.active {
+    display: flex;
   }
 }

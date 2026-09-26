@@ -10,6 +10,32 @@
   const sidebarBackdrop = document.getElementById('sidebarBackdrop');
   const menuBtn = document.getElementById('menuBtn');
   const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+  const keyToolbar = document.getElementById('keyToolbar');
+
+  const KEY_SEQUENCES = {
+    esc: '\x1b',
+    tab: '\t',
+    ctrlc: '\x03',
+    up: '\x1b[A',
+    down: '\x1b[B',
+    left: '\x1b[D',
+    right: '\x1b[C',
+    enter: '\r',
+  };
+
+  function sendRaw(str) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(new TextEncoder().encode(str));
+    }
+    if (term) term.focus();
+  }
+
+  keyToolbar.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-key]');
+    if (!btn) return;
+    const seq = KEY_SEQUENCES[btn.dataset.key];
+    if (seq) sendRaw(seq);
+  });
 
   let term = null;
   let fitAddon = null;
@@ -97,6 +123,7 @@
     activeSendResize = null;
     activeName = null;
     terminalEl.style.display = 'none';
+    keyToolbar.classList.remove('active');
     emptyState.style.display = 'flex';
     activeSessionLabel.textContent = 'Bir oturum secin veya olusturun';
   }
@@ -117,6 +144,7 @@
     activeSessionLabel.textContent = name;
     emptyState.style.display = 'none';
     terminalEl.style.display = 'block';
+    keyToolbar.classList.add('active');
 
     const isSmallScreen = window.matchMedia('(max-width: 600px)').matches;
 
