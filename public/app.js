@@ -6,16 +6,35 @@
   const emptyState = document.getElementById('emptyState');
   const terminalEl = document.getElementById('terminal');
   const logoutBtn = document.getElementById('logoutBtn');
+  const sidebarEl = document.getElementById('sidebar');
+  const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+  const menuBtn = document.getElementById('menuBtn');
+  const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
   let term = null;
   let fitAddon = null;
   let socket = null;
   let activeName = null;
   let resizeObserver = null;
+  let activeSendResize = null;
 
   function redirectToLogin() {
     window.location.href = '/login.html';
   }
+
+  function openSidebarDrawer() {
+    sidebarEl.classList.add('open');
+    sidebarBackdrop.classList.add('open');
+  }
+
+  function closeSidebarDrawer() {
+    sidebarEl.classList.remove('open');
+    sidebarBackdrop.classList.remove('open');
+  }
+
+  menuBtn.addEventListener('click', openSidebarDrawer);
+  closeSidebarBtn.addEventListener('click', closeSidebarDrawer);
+  sidebarBackdrop.addEventListener('click', closeSidebarDrawer);
 
   async function api(path, options) {
     const res = await fetch(path, {
@@ -41,6 +60,7 @@
       const item = document.createElement('div');
       item.className = 'session-item' + (s.name === activeName ? ' active' : '');
       const label = document.createElement('span');
+      label.className = 'label';
       label.textContent = s.name;
       const del = document.createElement('span');
       del.className = 'del';
@@ -74,6 +94,7 @@
       resizeObserver.disconnect();
       resizeObserver = null;
     }
+    activeSendResize = null;
     activeName = null;
     terminalEl.style.display = 'none';
     emptyState.style.display = 'flex';
@@ -81,6 +102,7 @@
   }
 
   function openSession(name) {
+    closeSidebarDrawer();
     if (activeName === name) return;
     if (socket) {
       socket.close();
@@ -96,9 +118,11 @@
     emptyState.style.display = 'none';
     terminalEl.style.display = 'block';
 
+    const isSmallScreen = window.matchMedia('(max-width: 600px)').matches;
+
     term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: isSmallScreen ? 13 : 14,
       fontFamily: 'Menlo, Consolas, "Courier New", monospace',
       theme: { background: '#0d1117', foreground: '#c9d1d9' },
     });
@@ -107,6 +131,8 @@
     term.open(terminalEl);
     fitAddon.fit();
     term.focus();
+
+    terminalEl.addEventListener('click', () => term && term.focus());
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     socket = new WebSocket(`${proto}://${window.location.host}/ws/${encodeURIComponent(name)}`);
@@ -143,9 +169,26 @@
       socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
     }
 
+    activeSendResize = sendResize;
+
     resizeObserver = new ResizeObserver(() => sendResize());
     resizeObserver.observe(terminalEl);
   }
+
+  // Mobil tarayicilarda ekran klavyesi acilip kapaninca layout viewport'u
+  // her zaman degismeyebilir (ozellikle Android Chrome); visualViewport
+  // bu durumu ResizeObserver'dan daha guvenilir yakalar.
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      if (activeSendResize) activeSendResize();
+    });
+  }
+
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+      if (activeSendResize) activeSendResize();
+    }, 300);
+  });
 
   newSessionForm.addEventListener('submit', async (e) => {
     e.preventDefault();

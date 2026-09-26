@@ -11,6 +11,12 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -19,7 +25,13 @@ body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
+}
+
+button {
+  touch-action: manipulation;
 }
 
 /* ---- Login ---- */
@@ -28,14 +40,19 @@ body {
   align-items: center;
   justify-content: center;
   height: 100vh;
+  height: 100dvh;
+  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 .login-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 32px;
-  width: 320px;
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 320px;
   text-align: center;
 }
 
@@ -46,29 +63,31 @@ body {
 
 .login-card input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: #0d1117;
   color: var(--text);
-  font-size: 14px;
+  font-size: 16px;
   margin-bottom: 12px;
+  min-height: 46px;
 }
 
 .login-card button {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px;
   border-radius: 8px;
   border: none;
   background: var(--accent);
   color: #0d1117;
   font-weight: 600;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
+  min-height: 46px;
 }
 
-.login-card button:hover {
-  opacity: 0.9;
+.login-card button:active {
+  opacity: 0.85;
 }
 
 .error {
@@ -82,6 +101,49 @@ body {
 .app {
   display: flex;
   height: 100vh;
+  height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.icon-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.icon-btn:active {
+  background: #1c2128;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 15;
+}
+
+.sidebar-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .sidebar {
@@ -91,6 +153,7 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  transition: transform 0.25s ease;
 }
 
 .sidebar-header {
@@ -101,28 +164,39 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.sidebar-header button {
+.sidebar-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-header button:not(.icon-btn) {
   background: none;
   border: none;
   color: var(--muted);
   cursor: pointer;
   font-size: 13px;
+  padding: 8px 4px;
+  min-height: 40px;
 }
 
-.sidebar-header button:hover {
+.sidebar-header button:not(.icon-btn):hover {
   color: var(--text);
 }
 
 .session-list {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 8px;
 }
 
 .session-item {
-  padding: 8px 10px;
+  padding: 10px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
@@ -131,9 +205,10 @@ body {
   justify-content: space-between;
   align-items: center;
   color: var(--muted);
+  min-height: 44px;
 }
 
-.session-item:hover {
+.session-item:active {
   background: #1c2128;
 }
 
@@ -142,15 +217,36 @@ body {
   color: var(--text);
 }
 
-.session-item .del {
-  opacity: 0;
-  color: var(--danger);
-  font-size: 12px;
-  padding: 2px 6px;
+.session-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 8px;
 }
 
-.session-item:hover .del {
-  opacity: 1;
+.session-item .del {
+  color: var(--danger);
+  font-size: 12px;
+  padding: 6px 8px;
+  flex-shrink: 0;
+}
+
+/* Hover-to-reveal delete only where a real hover input (mouse) exists.
+   On touch devices there is no hover, so it must stay visible or it's unreachable. */
+@media (hover: hover) and (pointer: fine) {
+  .session-item .del {
+    opacity: 0;
+  }
+  .session-item:hover .del {
+    opacity: 1;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .session-item .del {
+    opacity: 0.6;
+  }
 }
 
 .new-session {
@@ -158,28 +254,33 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
 
 .new-session input {
   flex: 1;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 10px 8px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: #0d1117;
   color: var(--text);
-  font-size: 13px;
+  font-size: 16px;
+  min-height: 44px;
 }
 
 .new-session button {
-  padding: 7px 10px;
+  padding: 7px 14px;
   border-radius: 6px;
   border: none;
   background: var(--accent);
   color: #0d1117;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .main {
@@ -190,15 +291,22 @@ body {
 }
 
 .topbar {
-  height: 44px;
+  height: 48px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 0 14px;
   flex-shrink: 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+.topbar .label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar button {
@@ -209,6 +317,7 @@ body {
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;
+  min-height: 32px;
 }
 
 .topbar button:hover {
@@ -219,6 +328,7 @@ body {
   flex: 1;
   padding: 8px;
   min-height: 0;
+  overscroll-behavior: contain;
 }
 
 #terminal {
@@ -235,4 +345,58 @@ body {
   font-size: 14px;
   text-align: center;
   padding: 20px;
+}
+
+.empty-state p {
+  max-width: 320px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.empty-state code {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* ---- Mobile layout: sidebar becomes an off-canvas drawer ---- */
+@media (max-width: 768px) {
+  .hamburger-btn,
+  .mobile-only {
+    display: inline-flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: 82vw;
+    max-width: 300px;
+    transform: translateX(-100%);
+    box-shadow: 2px 0 24px rgba(0, 0, 0, 0.45);
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .app {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .main {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .term-container {
+    padding: 4px;
+  }
 }

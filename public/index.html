@@ -2,32 +2,40 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0d1117" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
 <title>Claude Code Web</title>
 <link rel="stylesheet" href="/vendor/xterm/css/xterm.css" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app">
-    <div class="sidebar">
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <span>Oturumlar</span>
-        <button id="logoutBtn">Cikis</button>
+        <div class="header-actions">
+          <button id="closeSidebarBtn" class="icon-btn mobile-only" aria-label="Menuyu kapat">✕</button>
+          <button id="logoutBtn">Cikis</button>
+        </div>
       </div>
       <div class="session-list" id="sessionList"></div>
       <form class="new-session" id="newSessionForm">
-        <input type="text" id="newSessionName" placeholder="yeni-oturum-adi" maxlength="32" />
-        <button type="submit">+</button>
+        <input type="text" id="newSessionName" placeholder="yeni-oturum-adi" maxlength="32" autocomplete="off" autocapitalize="off" autocorrect="off" />
+        <button type="submit" aria-label="Oturum ekle">+</button>
       </form>
     </div>
     <div class="main">
       <div class="topbar">
-        <span id="activeSessionLabel">Bir oturum secin veya olusturun</span>
+        <button id="menuBtn" class="icon-btn hamburger-btn" aria-label="Oturum menusunu ac">☰</button>
+        <span class="label" id="activeSessionLabel">Bir oturum secin veya olusturun</span>
       </div>
       <div class="term-container" id="termContainer">
         <div class="empty-state" id="emptyState">
-          Soldan bir oturum acin ya da yeni bir isim yazip "+" ile olusturun.<br />
-          Terminal acildiginda <code>claude</code> yazarak Claude Code'u baslatabilirsiniz.
+          <p>Soldan bir oturum acin ya da yeni bir isim yazip "+" ile olusturun. Terminal acildiginda <code>claude</code> yazarak Claude Code'u baslatabilirsiniz.</p>
         </div>
         <div id="terminal" style="display:none"></div>
       </div>
