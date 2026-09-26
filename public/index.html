@@ -2,58 +2,100 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <meta name="theme-color" content="#0d1117" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="mobile-web-app-capable" content="yes" />
-<title>Claude Code Web</title>
+<title>Agent Web</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23161b22'/%3E%3Cpath d='M18 22l12 10-12 10M34 44h14' fill='none' stroke='%2358a6ff' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/vendor/xterm/css/xterm.css" />
+<link rel="stylesheet" href="/vendor/lib/highlight.css" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app">
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
-    <div class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <span>Oturumlar</span>
         <div class="header-actions">
-          <button id="closeSidebarBtn" class="icon-btn mobile-only" aria-label="Menuyu kapat">✕</button>
-          <button id="logoutBtn">Cikis</button>
+          <button id="closeSidebarBtn" class="icon-btn mobile-only" aria-label="Menüyü kapat">✕</button>
+          <button id="logoutBtn">Çıkış</button>
         </div>
       </div>
       <div class="session-list" id="sessionList"></div>
       <form class="new-session" id="newSessionForm">
-        <input type="text" id="newSessionName" placeholder="yeni-oturum-adi" maxlength="32" autocomplete="off" autocapitalize="off" autocorrect="off" />
+        <input type="text" id="newSessionName" placeholder="yeni-oturum-adi" maxlength="32" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
         <button type="submit" aria-label="Oturum ekle">+</button>
       </form>
-    </div>
-    <div class="main">
-      <div class="topbar">
-        <button id="menuBtn" class="icon-btn hamburger-btn" aria-label="Oturum menusunu ac">☰</button>
-        <span class="label" id="activeSessionLabel">Bir oturum secin veya olusturun</span>
-      </div>
-      <div class="term-container" id="termContainer">
-        <div class="empty-state" id="emptyState">
-          <p>Soldan bir oturum acin ya da yeni bir isim yazip "+" ile olusturun. Terminal acildiginda <code>claude</code> yazarak Claude Code'u baslatabilirsiniz.</p>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn hamburger-btn" aria-label="Oturum menüsünü aç">☰</button>
+        <div class="title-wrap">
+          <span class="label" id="activeSessionLabel">Bir oturum seçin</span>
+          <span class="run-dot" id="runDot" hidden></span>
         </div>
-        <div id="terminal" style="display:none"></div>
+        <div class="view-switch" id="viewSwitch" hidden>
+          <button type="button" data-view="chat" class="active">Sohbet</button>
+          <button type="button" data-view="terminal">Terminal</button>
+        </div>
+        <button type="button" id="newChatBtn" class="icon-btn always" aria-label="Yeni sohbet" title="Yeni sohbet" hidden>✎</button>
+      </header>
+
+      <div class="empty-state" id="emptyState">
+        <p>Soldan bir oturum açın ya da yeni bir isim yazıp <strong>+</strong> ile oluşturun.</p>
       </div>
-      <div class="key-toolbar" id="keyToolbar">
-        <button type="button" data-key="esc">Esc</button>
-        <button type="button" data-key="tab">Tab</button>
-        <button type="button" data-key="ctrlc">^C</button>
-        <button type="button" data-key="left">←</button>
-        <button type="button" data-key="up">↑</button>
-        <button type="button" data-key="down">↓</button>
-        <button type="button" data-key="right">→</button>
-        <button type="button" data-key="enter">Enter</button>
-      </div>
-    </div>
+
+      <section class="view chat-view" id="chatView" hidden>
+        <div class="chat-scroll" id="chatScroll">
+          <div class="chat-list" id="chatList"></div>
+        </div>
+        <div class="composer-wrap">
+          <button type="button" class="jump-btn" id="jumpBtn" aria-label="En alta in" hidden>↓</button>
+          <div class="rate-banner" id="rateBanner" hidden></div>
+          <div class="live-note" id="liveNote" hidden></div>
+          <form class="composer" id="composer">
+            <textarea id="promptInput" rows="1" placeholder="Claude'a bir şey yaz…" enterkeyhint="enter"></textarea>
+            <div class="composer-row">
+              <button type="button" class="pill" id="modelPill" aria-label="Model ve effort seç"></button>
+              <button type="button" class="pill" id="modePill" aria-label="İzin modunu seç"></button>
+              <span class="spacer"></span>
+              <button type="submit" class="send-btn" id="sendBtn" aria-label="Gönder" disabled>↑</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="view terminal-view" id="terminalView" hidden>
+        <div class="term-container" id="termContainer">
+          <div id="terminal"></div>
+        </div>
+        <div class="key-toolbar" id="keyToolbar">
+          <button type="button" data-key="esc">Esc</button>
+          <button type="button" data-key="tab">Tab</button>
+          <button type="button" data-key="ctrlc" aria-label="Ctrl+C">^C</button>
+          <button type="button" data-key="left" aria-label="Sol ok">←</button>
+          <button type="button" data-key="up" aria-label="Yukarı ok">↑</button>
+          <button type="button" data-key="down" aria-label="Aşağı ok">↓</button>
+          <button type="button" data-key="right" aria-label="Sağ ok">→</button>
+          <button type="button" data-key="enter" aria-label="Enter">↵</button>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <div class="sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-label="Model ayarları" hidden></div>
 
   <script src="/vendor/xterm/lib/xterm.js"></script>
   <script src="/vendor/xterm-addon-fit/lib/addon-fit.js"></script>
+  <script src="/vendor/lib/marked.js"></script>
+  <script src="/vendor/lib/purify.js"></script>
+  <script src="/vendor/lib/highlight.js"></script>
+  <script src="/chat.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

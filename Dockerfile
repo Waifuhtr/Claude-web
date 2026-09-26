@@ -19,12 +19,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install --no-cache-dir --break-system-packages uv
 
+# Terminal sekmesindeki `claude` komutu (giris/login ve elle kullanim icin).
+# Sohbet arayuzu ise package.json'daki Agent SDK'nin kendi Claude Code'unu kullanir;
+# ikisi de ayni ~/.claude giris bilgisini paylasir.
 RUN npm install -g @anthropic-ai/claude-code
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --omit=dev && npm cache clean --force
+# package-lock.json test edilmis surumleri sabitler (npm ci birebir onlari kurar).
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY server ./server
 COPY public ./public

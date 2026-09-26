@@ -10,10 +10,11 @@ function isValidName(name) {
 }
 
 class SessionManager {
-  constructor({ workspaceRoot, metaFile, defaultShellCmd }) {
+  constructor({ workspaceRoot, metaFile, defaultShellCmd, env }) {
     this.workspaceRoot = workspaceRoot;
     this.metaFile = metaFile;
     this.defaultShellCmd = defaultShellCmd || 'bash -l';
+    this.env = env || process.env;
   }
 
   workdirFor(name) {
@@ -80,7 +81,7 @@ class SessionManager {
         cols: cols || 80,
         rows: rows || 24,
         cwd,
-        env: process.env,
+        env: this.env,
       }
     );
   }

@@ -1,83 +1,132 @@
 # Kurulum Rehberi
 
-## 1. Space'i olusturma
+## 1. Space'i oluşturma
 
-1. huggingface.co'da **New Space** > SDK olarak **Docker** secin.
-2. Bu repodaki tum dosyalari (Dockerfile, server/, public/, claude-config/,
-   scripts/, package.json, README.md) Space reposunun kok dizinine
-   yukleyin (repoyu klonlayip `git push` ile, veya web arayuzunden dosya
-   dosya yukleyerek).
-3. Space **Settings > Hardware** kismindan yeterli donanimi secin (32GB RAM /
-   8 vCPU gibi bir kredi/pay-as-you-go donanimi sorunsuz calisir). Varsayilan
-   `cpu-basic` de calisir ama 48 saat hareketsizlikte uyur ve ozel uyku suresi
+1. huggingface.co'da **New Space** > SDK olarak **Docker** seçin.
+2. Bu repodaki tüm dosyaları (`Dockerfile`, `server/`, `public/`,
+   `claude-config/`, `scripts/`, `package.json`, `package-lock.json`,
+   `README.md`, `docs/`) Space reposunun kök dizinine yükleyin (repoyu
+   klonlayıp `git push` ile ya da web arayüzünden dosya dosya yükleyerek).
+   `package-lock.json` önemlidir: Docker build'i `npm ci` ile tam olarak test
+   edilmiş sürümleri kurar.
+3. Space **Settings > Hardware** kısmından yeterli donanımı seçin (32GB RAM /
+   8 vCPU gibi bir kredi/pay-as-you-go donanımı sorunsuz çalışır). Varsayılan
+   `cpu-basic` de çalışır ama 48 saat hareketsizlikte uyur ve özel uyku süresi
    ayarlanamaz.
 
 ## 2. Secrets (Settings > Variables and secrets)
 
-| Isim | Zorunlu mu | Aciklama |
+| İsim | Zorunlu mu | Açıklama |
 |---|---|---|
-| `APP_PASSWORD` | **Evet** | Web arayuzune giris parolasi. Bu olmadan sunucu baslamaz. |
-| `SESSION_SECRET` | Onerilir | Giris cookie'sini imzalamak icin rastgele bir metin (ornek: `openssl rand -hex 32` ciktisi). Girmezseniz her yeniden baslatmada otomatik/gecici uretilir ve mevcut girisler gecersiz olur — onemli bir sorun degil ama her restart'ta yeniden parola girmeniz gerekir. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Onerilir | Asagida "Claude kimlik dogrulama" bolumune bakin. |
-| `ANTHROPIC_API_KEY` | Opsiyonel | Token yerine (ya da ek olarak) API key ile odemeli kullanim isterseniz. |
+| `APP_PASSWORD` | **Evet** | Web arayüzüne giriş parolası. Bu olmadan sunucu başlamaz. |
+| `SESSION_SECRET` | Önerilir | Giriş cookie'sini imzalamak için rastgele bir metin (örnek: `openssl rand -hex 32` çıktısı). Girmezseniz her yeniden başlatmada geçici olarak üretilir ve her restart'ta yeniden parola girmeniz gerekir. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Opsiyonel | Aşağıda "Claude kimlik doğrulama" B yöntemine bakın. |
+| `ANTHROPIC_API_KEY` | Opsiyonel | Abonelik yerine API key ile (kullandıkça ödemeli) çalışmak isterseniz. Tanımlıysa sohbet ve terminal abonelik yerine bunu kullanır. |
 
-`APP_PASSWORD` gibi degerleri **Secret** olarak ekleyin, **Variable** olarak degil
-(Variable'lar herkese acik okunur ve Space kopyalandiginda tasinir).
+Bu değerleri **Secret** olarak ekleyin, **Variable** olarak değil (Variable'lar
+herkese açık okunur ve Space kopyalandığında taşınır). `APP_PASSWORD` ve
+`SESSION_SECRET` Claude'un çalıştırdığı komutlara ve terminale hiç
+aktarılmaz.
 
-## 3. Claude kimlik dogrulama
+## 3. Claude kimlik doğrulama
 
-Claude aboneliginiz (Pro/Max/Team/Enterprise) varsa **API key almaniza
-gerek yok** — Claude Code CLI, hesabiniza OAuth ile giris yapip abonelik
-kotanizi kullanabilir. claude.ai hesabiniza Google (veya baska bir SSO) ile
-giriyor olmaniz **hicbir sorun degil**: bu sadece claude.ai'in kendi login
-sayfasindaki kimlik dogrulama yontemi, CLI'nin OAuth degisiminden tamamen
-bagimsiz — asagidaki adimlarda claude.ai'a yonlendiginizde Google ile giris
-yapmaniz gayet normal calisir.
+Claude aboneliğiniz (Pro/Max) varsa API key almanız gerekmez: Claude Code,
+hesabınıza OAuth ile giriş yapıp abonelik kotanızı kullanabilir. claude.ai'a
+Google ile giriyor olmanız sorun değildir; bu sadece claude.ai'ın kendi giriş
+sayfasındaki yöntemdir.
 
-Container'da yerel bir tarayici olmadigi icin CLI, normal (yerel makinede)
-login akisindaki gibi otomatik yonlendirme *yapamaz*; bunun yerine size bir
-**kod** gosterip terminale geri yapistirmanizi ister — bu, container/SSH/WSL2
-gibi ortamlar icin CLI'nin resmi ve beklenen davranisi, bir seyin bozuk
-oldugu anlamina gelmez. Iki yontem var:
+Sohbet ekranı ve terminal **aynı giriş bilgisini** (`~/.claude`) kullanır;
+terminalde bir kez giriş yapmanız ikisi için de yeterlidir.
 
-**A) En basit — ilk acilista terminalden giris:**
-Space ayaga kalktiktan sonra parolayla giris yapin, bir oturum acin ve
-terminalde `claude` yazin (veya direkt `claude setup-token`). CLI bir URL
-gosterir (bazen `c` tusuna basip URL'yi kopyalamaniz istenir); bu URL'yi
-istediginiz cihazda (telefon, laptop, fark etmez) acip claude.ai'a Google ile
-giris yapin. Otomatik yonlenemedigi icin ekranda bir **kod** gorunecek; o
-kodu kopyalayip terminaldeki "Paste code here if prompted" satirina
-yapistirin. Storage Bucket bagliysa bu giris kalici olur, tekrar sormaz.
+Container'da tarayıcı olmadığı için CLI otomatik yönlendirme yapamaz; bunun
+yerine size bir **kod** gösterip terminale yapıştırmanızı ister. Bu,
+container/SSH ortamları için CLI'nin beklenen davranışıdır.
 
-**B) Daha saglam — onceden token uretme:**
-Ayni akisi (yukaridaki gibi URL -> Google login -> kod yapistirma) `claude
-setup-token` ile calistirin — bunu Space'in kendi terminalinde de, isterseniz
-kendi bilgisayarinizda da yapabilirsiniz, ikisi de ayni sekilde headless
-calisir. Komut sonunda ekrana yazdirilan token'i `CLAUDE_CODE_OAUTH_TOKEN`
-secret'ina yapistirin. Boylece Storage Bucket olmasa bile her yeniden
-baslatmada otomatik giris yapilir. Token yaklasik 1 yil gecerlidir.
+**A) En basit — terminalden giriş:**
+Bir oturum açın, **Terminal** sekmesine geçip `claude` yazın. CLI bir URL
+gösterir; bu URL'yi istediğiniz cihazda açıp claude.ai'a Google ile giriş
+yapın. Ekranda çıkan **kodu** kopyalayıp terminaldeki "Paste code here if
+prompted" satırına yapıştırın. Storage Bucket bağlıysa bu giriş kalıcı olur.
+Sonra **Sohbet** sekmesine dönebilirsiniz.
 
-Kaynak: [Claude Code kimlik dogrulama dokumantasyonu](https://code.claude.com/docs/en/authentication.md).
+**B) Daha sağlam — önceden token üretme:**
+Aynı akışı `claude setup-token` ile çalıştırın (Space'in terminalinde ya da
+kendi bilgisayarınızda). Komutun sonunda yazdırılan token'ı
+`CLAUDE_CODE_OAUTH_TOKEN` secret'ına yapıştırın. Böylece Storage Bucket olmasa
+bile her yeniden başlatmada otomatik giriş yapılır. Token yaklaşık 1 yıl
+geçerlidir.
 
-## 4. Kalicilik (Storage Bucket)
+**C) API key:** console.anthropic.com'dan bir API key alıp
+`ANTHROPIC_API_KEY` secret'ına ekleyin. Kullanım, aboneliğinizden değil API
+hesabınızdan ücretlendirilir.
 
-Bucket bagli degilse **hicbir sey** (giris bilgisi, MCP config'i, proje
-dosyalari, konusma gecmisi) bir sonraki restart'ta hayatta kalmaz —
-`scripts/entrypoint.sh` bunu loglarda acikca uyarir.
+Hangi yöntemin kullanıldığını sohbet ekranında model düğmesine dokunup en
+alttaki **Kimlik** satırından görebilirsiniz ("claude.ai girişi (abonelik)"
+veya "API key").
 
-Bucket eklemek icin: Space **Settings > Storage** > bir Storage Bucket
-olusturup `/data` yoluna baglayin. Sunucu, `/data`'nin gercekten ayri bir
-mount olup olmadigini otomatik algilar (basit bir "dizin var mi" kontrolu
-degil — cihaz kimligi karsilastirmasi yapar), algilarsa `HOME`'u otomatik
-`/data/home`'a yonlendirir.
+> **Not:** Anthropic'in Agent SDK dokümanı, önceden onay alınmadıkça üçüncü
+> taraf ürünlerin kullanıcılarına claude.ai girişi / abonelik limitleri
+> sunmasına izin vermediğini belirtir. Bu proje yalnızca **kendi hesabınızla,
+> kendi kişisel kullanımınız** için tasarlanmıştır; Space'i başkalarının
+> kullanımına açmayın. Tamamen resmi yolu tercih ederseniz C yöntemini (API
+> key) kullanın.
 
-## 5. MCP sunuculari ekleme
+Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/docs/en/authentication.md).
 
-Her yeni oturum klasorunde (`$WORKSPACE_ROOT/<oturum-adi>/.mcp.json`)
-`claude-config/mcp.example.json`'dan kopyalanan bir baslangic dosyasi
-bulunur (varsayilan: sadece `filesystem` sunucusu, hicbir ag/kimlik bilgisi
-gerektirmez). Terminalden o dosyayi duzenleyip istediginiz sunucuyu
-ekleyebilirsiniz, ornegin:
+## 4. Sohbet ekranını kullanma
+
+- **Model düğmesi** (yazma alanının altında solda): Model listesini açar.
+  Liste, ilk mesajdan sonra Claude Code'un bu hesap için bildirdiği
+  modellerle güncellenir; eski sürümler **Diğer modeller** altındadır.
+  - **Effort:** Claude'un ne kadar derin düşüneceği. *Varsayılan* modelin
+    kendi seviyesidir; *Düşük* en hızlısı, *Çok yüksek* kodlama ve uzun
+    işler için önerilen, *Maksimum* en kapsamlısıdır. Effort desteklemeyen
+    modellerde (ör. Haiku) bu satır pasif görünür.
+- **İzin modu düğmesi** (kalkan simgeli):
+  - *Her işlemde sor:* dosya düzenleme ve komutlardan önce onay kartı çıkar.
+  - *Düzenlemeleri otomatik kabul et:* dosya düzenlemeleri sorulmaz, komutlar
+    sorulur.
+  - *Plan modu:* Claude hiçbir şeyi değiştirmez, önce plan hazırlar; plan
+    kartından "Onayla" dediğinizde uygulamaya geçer.
+  - *Otomatik:* bir güvenlik sınıflandırıcısı izinleri sizin yerinize verir
+    (sadece destekleyen modellerde görünür).
+  - *Tüm izinleri atla:* hiçbir şey sorulmaz. İki kez dokunarak onaylanır;
+    sadece güvendiğiniz işlerde kullanın.
+  - Yeni oturumlar son seçilen model ve effort ile, ama her zaman *Her
+    işlemde sor* moduyla başlar.
+- **İzin kartları:** *İzin ver*, *Reddet* ve (Claude Code öneriyorsa) *Her
+  zaman izin ver*. "Her zaman" kuralı Claude Code'un önerdiği yere (genellikle
+  o oturum klasörünün `.claude/settings.local.json` dosyası) kaydedilir.
+  Claude Code bir işlemi riskli olarak işaretlerse, yanlışlıkla onay olmasın
+  diye *İzin ver* iki dokunuş ister.
+- **Sorular:** Claude seçenekli bir soru sorarsa seçip *Gönder*'e basın ya da
+  *Diğer…* ile kendi cevabınızı yazın.
+- **Durdurma ve yeni sohbet:** Yanıt sürerken gönder düğmesi ■ olur; dokununca
+  durur ve o ana kadar yazılanlar kalır. Üst çubuktaki ✎ yeni bir sohbet
+  başlatır (klasördeki dosyalar silinmez).
+- **Kullanım limiti:** Abonelik limitine yaklaşınca yazma alanının üstünde bir
+  uyarı ve sıfırlanma saati görünür.
+- Bilgisayarda **Enter** gönderir, **Shift+Enter** yeni satır açar; telefonda
+  Enter yeni satırdır, gönder düğmesini kullanın.
+
+## 5. Kalıcılık (Storage Bucket)
+
+Bucket bağlı değilse **hiçbir şey** (giriş bilgisi, sohbet geçmişi, MCP
+ayarları, proje dosyaları) bir sonraki restart'ta hayatta kalmaz —
+`scripts/entrypoint.sh` bunu loglarda açıkça uyarır.
+
+Bucket eklemek için: Space **Settings > Storage** > bir Storage Bucket
+oluşturup `/data` yoluna bağlayın. Sunucu, `/data`'nın gerçekten ayrı bir
+mount olup olmadığını otomatik algılar (cihaz kimliği karşılaştırması) ve
+algılarsa `HOME`'u `/data/home`'a yönlendirir. Sohbet geçmişi
+`$HOME/.cc-web/chats/` altında tutulur.
+
+## 6. MCP sunucuları ekleme
+
+Her yeni oturum klasöründe (`$WORKSPACE_ROOT/<oturum-adı>/.mcp.json`)
+`claude-config/mcp.example.json`'dan kopyalanan bir başlangıç dosyası
+bulunur (varsayılan: sadece `filesystem` sunucusu). Terminalden bu dosyayı
+düzenleyip istediğiniz sunucuyu ekleyebilirsiniz, örneğin:
 
 ```json
 {
@@ -95,32 +144,46 @@ ekleyebilirsiniz, ornegin:
 }
 ```
 
-API key/token gerektiren sunucular icin degeri dogrudan Space Secret olarak
-tanimlayip `env` icinde o degiskene referans vermeyi deneyin; calismazsa
-degeri gecici olarak dosyaya elle yazip Storage Bucket sayesinde kalici
-tutabilirsiniz. `npx`/`uvx` ile calisan MCP sunuculari ilk calistirmada
-paketi otomatik indirir (443 uzerinden), ek kuruluma gerek yoktur.
+Claude Code güvenlik gereği bir klasördeki `.mcp.json` sunucularını ilk kez
+kullanmadan önce onay ister. Sohbet ekranında bu onay ekranı çıkmadığı için,
+yeni bir sunucu ekledikten sonra o oturumun **Terminal** sekmesinde bir kez
+`claude` açıp MCP onay ekranında sunucuları onaylayın. Sunucuların durumunu
+sohbette model düğmesine dokunup en alttaki **MCP** satırından görebilirsiniz
+(yeni ayarlar bir sonraki yeni sohbette ya da sunucu yeniden başlayınca
+yüklenir).
 
-## 6. Ag kisitlamasi
+API key/token gerektiren sunucular için değeri Space Secret olarak tanımlayıp
+`env` içinde o değişkene referans vermeyi deneyin; çalışmazsa değeri dosyaya
+yazıp Storage Bucket sayesinde kalıcı tutabilirsiniz. `npx`/`uvx` ile çalışan
+MCP sunucuları ilk çalıştırmada paketi otomatik indirir (443 üzerinden).
 
-HF Space'lerin outbound trafigi sadece **80, 443, 8080** portlarina
+## 7. Ağ kısıtlaması
+
+HF Space'lerin dışarı giden trafiği sadece **80, 443, 8080** portlarına
 gidebilir. Pratikte:
 
-- Calisir: HTTP(S) API'ler, `git clone https://...`, npm/pip/uvx paket
-  kurulumu, HTTP/SSE tabanli veya stdio+HTTPS-cagrili MCP sunuculari.
-- Calismaz: `ssh://` git remote'lari, dogrudan veritabani portlari (5432,
-  6379, ...), ozel TCP/UDP protokolleri. Bu tur bir ihtiyaciniz olursa
-  Cloudflare Tunnel veya Tailscale gibi 443 uzerinden tunelleyen bir katman
-  kullanin.
+- Çalışır: HTTP(S) API'ler, `git clone https://...`, npm/pip/uvx paket
+  kurulumu, HTTP/SSE tabanlı veya stdio+HTTPS çağrılı MCP sunucuları.
+- Çalışmaz: `ssh://` git remote'ları, doğrudan veritabanı portları (5432,
+  6379, ...), özel TCP/UDP protokolleri. Bu tür bir ihtiyaç için Cloudflare
+  Tunnel veya Tailscale gibi 443 üzerinden tünelleyen bir katman kullanın.
 
-## 7. Sorun giderme
+## 8. Sorun giderme
 
-- Space acilmiyor / hemen kapaniyor: Space'in **Logs** sekmesine bakin,
-  `entrypoint.sh` ve `server/index.js` konsola aciklayici Turkce mesajlar
-  yazar (ozellikle `APP_PASSWORD` eksikse acikca belirtir).
-- Terminale baglanamiyorum: Tarayici konsolunda websocket hatasi varsa
-  parolayla girisin gecerli oldugundan (cookie) emin olun; `SESSION_SECRET`
-  sabitlenmemisse restart sonrasi yeniden giris gerekir.
-- `claude` komutu bulunamiyor: Docker imajinda `npm install -g
-  @anthropic-ai/claude-code` build asamasinda calisir; imaj build loglarini
+- **Space açılmıyor / hemen kapanıyor:** Space'in **Logs** sekmesine bakın;
+  `entrypoint.sh` ve sunucu açıklayıcı Türkçe mesajlar yazar (özellikle
+  `APP_PASSWORD` eksikse açıkça belirtir).
+- **Sohbette "Kimlik doğrulama başarısız":** Terminal sekmesinde `claude`
+  yazıp giriş yapın (bkz. bölüm 3) ya da `ANTHROPIC_API_KEY` tanımlayın.
+- **"Seçilen model bu hesapta kullanılamıyor":** Model düğmesinden başka bir
+  model (ör. Varsayılan) seçin.
+- **"Önceki konuşma devam ettirilemedi, yeni bir konuşma başlatıldı":**
+  Claude'un konuşma kaydı bulunamadı (genelde Storage Bucket olmadan yapılan
+  bir restart sonrası). Ekrandaki geçmiş durur ama Claude eski konuşmayı
+  hatırlamaz.
+- **Bağlantı koptu uyarısı:** Sayfa kendiliğinden yeniden bağlanır. Oturum
+  süresi dolduysa giriş sayfasına yönlendirilirsiniz; `SESSION_SECRET`
+  sabitlenmemişse her restart sonrası yeniden giriş gerekir.
+- **Terminalde `claude` bulunamıyor:** Docker imajında `npm install -g
+  @anthropic-ai/claude-code` build aşamasında çalışır; build loglarını
   kontrol edin.

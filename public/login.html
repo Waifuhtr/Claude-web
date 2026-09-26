@@ -7,15 +7,17 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="mobile-web-app-capable" content="yes" />
-<title>Giris - Claude Code Web</title>
+<title>Giriş - Agent Web</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23161b22'/%3E%3Cpath d='M18 22l12 10-12 10M34 44h14' fill='none' stroke='%2358a6ff' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="login-wrap">
     <form class="login-card" id="loginForm">
-      <h1>Claude Code Web</h1>
+      <h1>Agent Web</h1>
+      <p class="login-sub">Claude ile çalışır</p>
       <input type="password" id="password" name="password" placeholder="Parola" autofocus autocomplete="current-password" />
-      <button type="submit">Giris yap</button>
+      <button type="submit">Giriş yap</button>
       <div class="error" id="error"></div>
     </form>
   </div>
@@ -35,10 +37,10 @@
         if (res.ok) {
           window.location.href = '/';
         } else {
-          errorEl.textContent = 'Parola yanlis';
+          errorEl.textContent = 'Parola yanlış';
         }
       } catch (err) {
-        errorEl.textContent = 'Baglanti hatasi: ' + err.message;
+        errorEl.textContent = 'Bağlantı hatası: ' + err.message;
       }
     });
   </script>

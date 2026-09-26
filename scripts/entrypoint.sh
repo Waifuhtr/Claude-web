@@ -31,9 +31,13 @@ fi
 
 mkdir -p "$HOME/.claude"
 
-if [ ! -f "$HOME/.bashrc" ] || ! grep -q "Claude Code Web hazir" "$HOME/.bashrc" 2>/dev/null; then
+if ! grep -q "Agent Web terminali" "$HOME/.bashrc" 2>/dev/null; then
+  # Eski surumun karsilama satirini temizle (kalici HOME'da iki kez gorunmesin).
+  if [ -f "$HOME/.bashrc" ]; then
+    sed -i '/Claude Code Web hazir/d' "$HOME/.bashrc"
+  fi
   cat >> "$HOME/.bashrc" <<'EOF'
-echo "Claude Code Web hazir. Baslatmak icin: claude"
+echo "Agent Web terminali. Claude Code'u baslatmak icin: claude"
 EOF
 fi
 
