@@ -1,0 +1,20 @@
+{
+  "name": "claude-code-web-space",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hugging Face Space uzerinde kalici, cok oturumlu, MCP destekli Claude Code terminali",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "express": "^4.19.2",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}

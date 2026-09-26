@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Giris - Claude Code Web</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" id="loginForm">
+      <h1>Claude Code Web</h1>
+      <input type="password" id="password" name="password" placeholder="Parola" autofocus autocomplete="current-password" />
+      <button type="submit">Giris yap</button>
+      <div class="error" id="error"></div>
+    </form>
+  </div>
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorEl = document.getElementById('error');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.textContent = '';
+      const password = document.getElementById('password').value;
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          errorEl.textContent = 'Parola yanlis';
+        }
+      } catch (err) {
+        errorEl.textContent = 'Baglanti hatasi: ' + err.message;
+      }
+    });
+  </script>
+</body>
+</html>

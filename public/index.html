@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Code Web</title>
+<link rel="stylesheet" href="/vendor/xterm/css/xterm.css" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <span>Oturumlar</span>
+        <button id="logoutBtn">Cikis</button>
+      </div>
+      <div class="session-list" id="sessionList"></div>
+      <form class="new-session" id="newSessionForm">
+        <input type="text" id="newSessionName" placeholder="yeni-oturum-adi" maxlength="32" />
+        <button type="submit">+</button>
+      </form>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <span id="activeSessionLabel">Bir oturum secin veya olusturun</span>
+      </div>
+      <div class="term-container" id="termContainer">
+        <div class="empty-state" id="emptyState">
+          Soldan bir oturum acin ya da yeni bir isim yazip "+" ile olusturun.<br />
+          Terminal acildiginda <code>claude</code> yazarak Claude Code'u baslatabilirsiniz.
+        </div>
+        <div id="terminal" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/xterm/lib/xterm.js"></script>
+  <script src="/vendor/xterm-addon-fit/lib/addon-fit.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
