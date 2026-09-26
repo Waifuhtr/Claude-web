@@ -26,21 +26,38 @@
 
 ## 3. Claude kimlik dogrulama
 
-Claude aboneliginiz (Pro/Max) varsa **API key almaniza gerek yok** — Claude
-Code CLI, hesabiniza OAuth ile giris yapip abonelik kotanizi kullanabilir.
-Iki yontem var:
+Claude aboneliginiz (Pro/Max/Team/Enterprise) varsa **API key almaniza
+gerek yok** — Claude Code CLI, hesabiniza OAuth ile giris yapip abonelik
+kotanizi kullanabilir. claude.ai hesabiniza Google (veya baska bir SSO) ile
+giriyor olmaniz **hicbir sorun degil**: bu sadece claude.ai'in kendi login
+sayfasindaki kimlik dogrulama yontemi, CLI'nin OAuth degisiminden tamamen
+bagimsiz — asagidaki adimlarda claude.ai'a yonlendiginizde Google ile giris
+yapmaniz gayet normal calisir.
+
+Container'da yerel bir tarayici olmadigi icin CLI, normal (yerel makinede)
+login akisindaki gibi otomatik yonlendirme *yapamaz*; bunun yerine size bir
+**kod** gosterip terminale geri yapistirmanizi ister — bu, container/SSH/WSL2
+gibi ortamlar icin CLI'nin resmi ve beklenen davranisi, bir seyin bozuk
+oldugu anlamina gelmez. Iki yontem var:
 
 **A) En basit — ilk acilista terminalden giris:**
 Space ayaga kalktiktan sonra parolayla giris yapin, bir oturum acin ve
-terminalde `claude` yazin. Ilk calistirmada size bir URL gosterip tarayicida
-(herhangi bir cihazda) giris yapmanizi isteyecek. Storage Bucket bagliysa bu
-giris kalici olur, tekrar sormaz.
+terminalde `claude` yazin (veya direkt `claude setup-token`). CLI bir URL
+gosterir (bazen `c` tusuna basip URL'yi kopyalamaniz istenir); bu URL'yi
+istediginiz cihazda (telefon, laptop, fark etmez) acip claude.ai'a Google ile
+giris yapin. Otomatik yonlenemedigi icin ekranda bir **kod** gorunecek; o
+kodu kopyalayip terminaldeki "Paste code here if prompted" satirina
+yapistirin. Storage Bucket bagliysa bu giris kalici olur, tekrar sormaz.
 
 **B) Daha saglam — onceden token uretme:**
-Kendi bilgisayarinizda (Claude Code CLI + Pro/Max hesabinizla giris yapmis)
-`claude setup-token` komutunu calistirin, ciktida verilen token'i
-`CLAUDE_CODE_OAUTH_TOKEN` secret'ina yapistirin. Boylece Storage Bucket
-olmasa bile her yeniden baslatmada otomatik giris yapilir.
+Ayni akisi (yukaridaki gibi URL -> Google login -> kod yapistirma) `claude
+setup-token` ile calistirin — bunu Space'in kendi terminalinde de, isterseniz
+kendi bilgisayarinizda da yapabilirsiniz, ikisi de ayni sekilde headless
+calisir. Komut sonunda ekrana yazdirilan token'i `CLAUDE_CODE_OAUTH_TOKEN`
+secret'ina yapistirin. Boylece Storage Bucket olmasa bile her yeniden
+baslatmada otomatik giris yapilir. Token yaklasik 1 yil gecerlidir.
+
+Kaynak: [Claude Code kimlik dogrulama dokumantasyonu](https://code.claude.com/docs/en/authentication.md).
 
 ## 4. Kalicilik (Storage Bucket)
 
