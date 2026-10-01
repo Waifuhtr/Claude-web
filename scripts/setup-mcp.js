@@ -235,12 +235,41 @@ function apply(home, managed = defaultManaged()) {
   }
 }
 
+// Brings back a ready-made server that was removed on purpose (from the MCP
+// screen or with claude mcp remove):
+//   node /app/scripts/setup-mcp.js --restore playwright
+function restore(home, name, managed = defaultManaged()) {
+  if (!Object.prototype.hasOwnProperty.call(managed, name)) {
+    log(`"${name}" hazir sunuculardan biri degil (${Object.keys(managed).join(', ')}).`);
+    return false;
+  }
+  const stateFile = path.join(home, '.cc-web', 'managed-mcp.json');
+  const state = readState(stateFile);
+  if (state.servers[name] !== undefined) {
+    delete state.servers[name];
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    writeFileAtomic(stateFile, `${JSON.stringify(state, null, 2)}\n`, 0o600);
+  }
+  apply(home, { [name]: managed[name] });
+  return true;
+}
+
 if (require.main === module) {
+  const args = process.argv.slice(2);
   if (!process.env.HOME) {
     log('HOME tanimli degil; atlandi.');
+  } else if (args[0] === '--restore') {
+    if (!args[1]) {
+      log(`Kullanim: setup-mcp.js --restore <${Object.keys(defaultManaged()).join('|')}>`);
+      process.exitCode = 2;
+    } else if (restore(process.env.HOME, args[1])) {
+      log("Agent Web'de MCP sunuculari ekranindaki \"Claude'u yeniden baslat\" ile yuklenir.");
+    } else {
+      process.exitCode = 1;
+    }
   } else {
     apply(process.env.HOME);
   }
 }
 
-module.exports = { apply, MANAGED, RETIRED };
+module.exports = { apply, restore, MANAGED, RETIRED };

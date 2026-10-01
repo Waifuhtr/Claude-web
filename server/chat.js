@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 
@@ -24,6 +25,11 @@ const USAGE_FLUSH_MS = 400;
 // Signing in to remote MCP servers (OAuth) from the chat.
 const MCP_AUTH_TIMEOUT_MS = 45000;
 const MCP_CALLBACK_TIMEOUT_MS = 60000;
+// Removing MCP servers for good (Claude Code's own `claude mcp remove`) and
+// switching them off (claude.ai connectors cannot be removed from here).
+const MCP_REMOVE_TIMEOUT_MS = 60000;
+const MCP_TOGGLE_TIMEOUT_MS = 30000;
+const REMOVABLE_SCOPES = new Set(['user', 'local', 'project']);
 const OAUTH_FLOW_TTL_MS = 15 * 60 * 1000;
 const MAX_OAUTH_FLOWS = 50;
 const MAX_CALLBACK_URL = 8192;
@@ -283,6 +289,9 @@ function summarizeMcp(server) {
     scope: String(s.scope || s.source || ''),
     tools: Array.isArray(s.tools) ? s.tools.length : null,
     host: serverHost(s.config),
+    // Where the definition lives (user, local, project, claudeai, plugin...);
+    // decides whether it can be removed from here.
+    source: String(s.source || s.scope || ''),
   };
 }
 
@@ -414,6 +423,9 @@ class ChatSession {
     this.draftTimer = null;
     this.currentMessageId = null;
     this.lastInit = null;
+    // Where each MCP server is defined, from the last live list: the list
+    // kept while Claude is stopped still says what can be removed.
+    this.mcpScopes = new Map();
     this.idleTimer = null;
     this.mediaDir = path.join(this.dir, 'media');
     this.filesDir = path.join(this.dir, 'files');
@@ -421,6 +433,8 @@ class ChatSession {
     this.uploads = new Map();
     // MCP server name -> the Claude process its sign-in was started in.
     this.authRuns = new Map();
+    // An MCP server was removed while Claude was answering.
+    this.restartPending = false;
     this.turn = null;
     this.usageTimer = null;
     this.seq = 0;
@@ -573,6 +587,12 @@ class ChatSession {
       case 'mcp_auth_url':
         this.submitMcpCallback(msg.name, msg.url).catch(() => {});
         break;
+      case 'mcp_remove':
+        this.removeMcp(ws, msg.name, msg.scope).catch(() => {});
+        break;
+      case 'mcp_toggle':
+        this.toggleMcp(ws, msg.name, msg.enabled).catch(() => {});
+        break;
       case 'restart':
         this.restart(ws);
         break;
@@ -658,6 +678,8 @@ class ChatSession {
 
     run.query = query({ prompt: run.input, options });
     this.run = run;
+    // A fresh process reads the current MCP configuration.
+    this.restartPending = false;
     this.consume(run);
     // Refreshed on every start: a newer Claude Code may list new models.
     run.query.supportedModels().then((models) => this.manager.setModels(models)).catch(() => {});
@@ -1038,6 +1060,14 @@ class ChatSession {
       this.unanswered = [];
       this.seenToolIds.clear();
       this.scheduleIdle();
+      // An MCP server was removed during the turn: the next message starts
+      // a Claude without it.
+      if (this.restartPending && this.run && this.pending.size === 0) {
+        this.restartPending = false;
+        this.closeRun(this.run, false);
+        this.authRuns.clear();
+        this.broadcastMcpStatus().catch(() => {});
+      }
     } else {
       this.startTurn();
     }
@@ -1484,13 +1514,15 @@ class ChatSession {
       }
     }
     const run = this.run;
-    const reply = { type: 'mcp', live: false, servers: this.lastInit ? this.lastInit.mcp : [] };
+    const last = this.lastInit ? this.lastInit.mcp : [];
+    const reply = { type: 'mcp', live: false, servers: last.map((s) => ({ ...this.mcpScopes.get(s.name), ...s })) };
     if (startError) reply.error = startError;
     if (run && !run.closing) {
       try {
         const list = await withTimeout(run.query.mcpServerStatus(), MCP_STATUS_TIMEOUT_MS, 'MCP durumu alınamadı (zaman aşımı).');
         reply.live = true;
         reply.servers = Array.isArray(list) ? list.map(summarizeMcp) : [];
+        this.mcpScopes = new Map(reply.servers.map((s) => [s.name, { scope: s.scope, source: s.source }]));
       } catch (err) {
         reply.error = errMessage(err);
       }
@@ -1624,6 +1656,85 @@ class ChatSession {
     return result;
   }
 
+  // Removes a server from Claude Code's configuration for good (user scope:
+  // every session; local or project scope: this session's folder). Running
+  // Claude processes read their MCP list at start: an idle one is restarted
+  // right away (the conversation is kept), a busy one after its turn.
+  async removeMcp(ws, name, scope) {
+    if (!validServerName(name)) return;
+    const reply = (extra) => sendTo(ws, { type: 'mcp_removed', name, ...extra });
+    if (!REMOVABLE_SCOPES.has(scope)) {
+      reply({ ok: false, error: 'Bu sunucu buradan kaldırılamaz.' });
+      return;
+    }
+    this.manager.ensureWorkspace(this.name);
+    const result = await this.manager.removeMcpServer(name, scope, this.cwd);
+    // Already gone from the config (removed elsewhere) while Claude still
+    // lists it: only the restart is left to do.
+    const already = !result.ok && result.notFound && this.listsMcp(name);
+    if (!result.ok && !already) {
+      reply({ ok: false, error: result.error });
+      return;
+    }
+    const hadRun = !!this.run;
+    const sessions = scope === 'user' ? this.manager.allSessions() : [this];
+    let pending = false;
+    for (const session of sessions) {
+      const deferred = session.dropMcpServer(name);
+      if (session === this) pending = deferred;
+      else if (session.clients.size) session.broadcastMcpStatus().catch(() => {});
+    }
+    reply({ ok: true, pending, ...(already ? { already: true } : {}) });
+    if (hadRun && !pending) {
+      // Restarted: show the live list without the removed server.
+      await this.ensureLiveRun().catch(() => {});
+    }
+    await this.broadcastMcpStatus();
+  }
+
+  listsMcp(name) {
+    return this.mcpScopes.has(name) || !!(this.lastInit && this.lastInit.mcp.some((s) => s.name === name));
+  }
+
+  // Forgets a removed MCP server; returns true when the Claude process is
+  // busy and restarts only after its turn.
+  dropMcpServer(name) {
+    this.mcpScopes.delete(name);
+    if (this.lastInit && Array.isArray(this.lastInit.mcp)) {
+      this.lastInit = { ...this.lastInit, mcp: this.lastInit.mcp.filter((s) => s.name !== name) };
+    }
+    if (!this.run) return false;
+    if (this.running || this.pending.size) {
+      this.restartPending = true;
+      return true;
+    }
+    this.closeRun(this.run, true);
+    this.authRuns.clear();
+    return false;
+  }
+
+  // claude.ai connectors (and any server) switched off or back on for this
+  // session's folder; Claude Code keeps the choice in its project settings.
+  async toggleMcp(ws, name, enabled) {
+    if (!validServerName(name) || typeof enabled !== 'boolean') return;
+    const reply = (extra) => sendTo(ws, { type: 'mcp_toggled', name, enabled, ...extra });
+    let run;
+    try {
+      run = await this.ensureLiveRun();
+    } catch (err) {
+      reply({ ok: false, error: `Claude başlatılamadı: ${errMessage(err)}` });
+      return;
+    }
+    try {
+      await withTimeout(run.query.toggleMcpServer(name, enabled), MCP_TOGGLE_TIMEOUT_MS, 'İşlem zaman aşımına uğradı.');
+    } catch (err) {
+      reply({ ok: false, error: errMessage(err) });
+      return;
+    }
+    reply({ ok: true });
+    await this.broadcastMcpStatus();
+  }
+
   async reconnectQuietly(run, name) {
     try {
       await withTimeout(run.query.reconnectMcpServer(name), MCP_STATUS_TIMEOUT_MS * 3, 'Yeniden bağlanma zaman aşımına uğradı.');
@@ -1645,6 +1756,7 @@ class ChatSession {
     if (this.run) this.closeRun(this.run, true);
     this.clearIdle();
     this.authRuns.clear();
+    this.restartPending = false;
     this.lastInit = null;
     this.addEvent({ t: 'notice', text: 'Claude yeniden başlatıldı; MCP ve ayar değişiklikleri bir sonraki mesajla yüklenecek.' });
     this.broadcastStatus();
@@ -1663,6 +1775,7 @@ class ChatSession {
     this.toolNames.clear();
     this.uploads.clear();
     this.authRuns.clear();
+    this.restartPending = false;
     this.state.sessionId = null;
     this.state.usageBase = null;
     this.saveState();
@@ -1820,6 +1933,72 @@ class ChatManager {
     const abs = path.join(dir, 'content');
     if (!meta || !fs.existsSync(abs)) return null;
     return { abs, name: safeFileName(meta.name), size: num(meta.size), text: meta.text === true };
+  }
+
+  allSessions() {
+    return [...this.sessions.values()];
+  }
+
+  // Claude Code's CLI: the one bundled with the Agent SDK (the same version
+  // the chat runs), else `claude` on PATH.
+  claudeBin() {
+    if (this.claudeBinPath === undefined) {
+      this.claudeBinPath = null;
+      for (const pkg of [`claude-agent-sdk-${process.platform}-${process.arch}`, `claude-agent-sdk-${process.platform}-${process.arch}-musl`]) {
+        try {
+          this.claudeBinPath = require.resolve(`@anthropic-ai/${pkg}/claude`);
+          break;
+        } catch {
+          // bu platform paketi yok
+        }
+      }
+      if (!this.claudeBinPath) {
+        for (const dir of String((this.childEnv && this.childEnv.PATH) || process.env.PATH || '').split(':')) {
+          const candidate = dir ? path.join(dir, 'claude') : '';
+          if (!candidate) continue;
+          try {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            this.claudeBinPath = candidate;
+            break;
+          } catch {
+            // bu dizinde yok
+          }
+        }
+      }
+    }
+    return this.claudeBinPath;
+  }
+
+  // `claude mcp remove`: Claude Code edits its own configuration (it keeps
+  // other Claude processes' writes to ~/.claude.json consistent).
+  // One at a time: two removals tapped in a row edit the same file.
+  removeMcpServer(name, scope, cwd) {
+    const job = (this.mcpRemoveQueue || Promise.resolve()).then(() => this.runMcpRemove(name, scope, cwd));
+    this.mcpRemoveQueue = job;
+    return job;
+  }
+
+  runMcpRemove(name, scope, cwd) {
+    const bin = this.claudeBin();
+    if (!bin) return Promise.resolve({ ok: false, error: 'Claude Code komutu bulunamadı.' });
+    const env = { ...this.childEnv, DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+    return new Promise((resolve) => {
+      execFile(
+        bin,
+        ['mcp', 'remove', '--scope', scope, '--', name],
+        { cwd, env, timeout: MCP_REMOVE_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const output = `${stdout || ''}\n${stderr || ''}`.trim();
+          if (err) {
+            const reason = output || (err.killed ? 'Zaman aşımı.' : errMessage(err));
+            resolve({ ok: false, notFound: /No MCP server (named|found)/i.test(output), error: truncate(reason, 1000) });
+          } else {
+            console.log(`[mcp] "${name}" kaldirildi (${scope})`);
+            resolve({ ok: true, output: truncate(output, 1000) });
+          }
+        }
+      );
+    });
   }
 
   isRunning(name) {

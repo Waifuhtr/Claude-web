@@ -75,6 +75,18 @@
   const APP_LABEL = { browser: 'Tarayıcı' };
   const MCP_STATUS = { connected: 'Bağlı', failed: 'Hata', 'needs-auth': 'Giriş gerekli', pending: 'Bağlanıyor', disabled: 'Kapalı' };
   const GITHUB_HOST_RE = /(^|\.)githubcopilot\.com$/i;
+  // MCP servers defined in these places can be removed for good from the sheet.
+  const REMOVABLE_SOURCES = new Set(['user', 'local', 'project']);
+  const REMOVE_WHERE = {
+    user: 'Tüm oturumlardan kaldırılır.',
+    local: 'Sadece bu oturumun klasöründen kaldırılır.',
+    project: "Bu klasörün .mcp.json dosyasından silinir.",
+  };
+  const REMOVE_EFFECT = {
+    agentweb: 'Claude sohbete dosya gönderemez.',
+    playwright: 'Claude web tarayıcısını kullanamaz.',
+    github: 'GitHub MCP araçları gider; gh ve git çalışmaya devam eder.',
+  };
   const AUTH_ERROR_RE = /401|403|unauthori[sz]ed|forbidden|auth|registration|token/i;
   const MCP_SCOPE = {
     user: 'tüm oturumlar',
@@ -116,6 +128,14 @@
   let mcpState = null;
   // MCP server name -> sign-in in progress ({ phase, authUrl, mode, error, ... }).
   const mcpAuth = new Map();
+  // MCP server name -> removal or on/off switch in progress
+  // ({ action: 'remove' | 'disable' | 'enable', phase: 'confirm' | 'busy' | 'removed', error }).
+  const mcpEdit = new Map();
+  let mcpNotice = '';
+  // Re-rendering the sheet keeps its scroll position within the same view.
+  let sheetShownView = null;
+  let sheetToTop = false;
+  let mcpReveal = '';
   let mcpRenderPending = false;
   let attachments = [];
   let attachSeq = 0;
@@ -1440,9 +1460,97 @@
     return box;
   }
 
+  function mcpSource(server) {
+    return server.source || server.scope || '';
+  }
+
+  function setMcpEdit(name, edit) {
+    if (edit) mcpEdit.set(name, edit);
+    else mcpEdit.delete(name);
+    if (edit && edit.phase === 'confirm') mcpReveal = name;
+    renderSheet();
+  }
+
+  // Scrolls just enough to show a row's confirmation, never past its top.
+  function revealMcpRow(body, name) {
+    const row = [...body.querySelectorAll('.mcp-row')].find((r) => r.dataset.name === name);
+    if (!row) return;
+    const b = body.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const below = r.bottom - b.bottom + 12;
+    if (below > 0) body.scrollTop += Math.min(below, Math.max(0, r.top - b.top - 8));
+  }
+
+  function sendMcpEdit(server, edit) {
+    const msg =
+      edit.action === 'remove'
+        ? { type: 'mcp_remove', name: server.name, scope: mcpSource(server) }
+        : { type: 'mcp_toggle', name: server.name, enabled: edit.action === 'enable' };
+    if (!send(msg)) return;
+    mcpNotice = '';
+    setMcpEdit(server.name, { action: edit.action, phase: 'busy' });
+  }
+
+  // A command that wraps only between words ("--restore" stays whole).
+  function commandCode(text) {
+    const code = el('code', 'mcp-cmd');
+    text.split(' ').forEach((word, i) => {
+      if (i) code.append(' ');
+      code.appendChild(el('span', '', word));
+    });
+    return code;
+  }
+
+  // Removing (or switching off) asks once more, right in the row.
+  function mcpEditPanel(server, edit) {
+    const box = el('div', 'mcp-auth mcp-confirm');
+    if (edit.phase === 'busy') {
+      const label = { remove: 'Kaldırılıyor…', disable: 'Kapatılıyor…', enable: 'Açılıyor…' }[edit.action];
+      box.appendChild(el('span', 'opt-desc', label));
+      return box;
+    }
+    if (edit.phase === 'removed') {
+      box.appendChild(el('span', 'opt-desc mcp-ok', 'Kaldırıldı; Claude yeniden başlayınca listeden düşer.'));
+      return box;
+    }
+    if (edit.action === 'remove') {
+      const source = mcpSource(server);
+      const lines = [`“${server.name}” kalıcı olarak kaldırılsın mı? ${REMOVE_WHERE[source] || ''}`];
+      if (REMOVE_EFFECT[server.name]) lines.push(REMOVE_EFFECT[server.name]);
+      // Agent Web's ready-made servers come back with one command.
+      const readyMade = !!REMOVE_EFFECT[server.name] && source === 'user';
+      const desc = el('span', 'opt-desc mcp-hint');
+      desc.append(
+        `${lines.join(' ')} Geri eklemek için Terminal'de `,
+        commandCode(readyMade ? `node /app/scripts/setup-mcp.js --restore ${server.name}` : 'claude mcp add'),
+        readyMade ? '.' : ' gerekir.'
+      );
+      box.appendChild(desc);
+    } else {
+      box.appendChild(
+        el('span', 'opt-desc', `“${server.name}” bir claude.ai bağlayıcısı, buradan silinemez. Bu oturumda kapatılır ve Aç'a dokunana kadar kapalı kalır. Tüm oturumlardan kaldırmak için claude.ai'da Ayarlar → Bağlayıcılar.`)
+      );
+      const link = el('a', 'mcp-link-btn', 'claude.ai bağlayıcıları ↗');
+      link.href = 'https://claude.ai/settings/connectors';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      box.appendChild(link);
+    }
+    if (edit.error) box.appendChild(el('span', 'mcp-error', edit.error));
+    const actions = el('div', 'mcp-confirm-actions');
+    actions.append(
+      btn('Vazgeç', 'mcp-retry', () => setMcpEdit(server.name, null)),
+      btn(edit.action === 'remove' ? 'Kaldır' : 'Kapat', 'mcp-retry danger', () => sendMcpEdit(server, edit))
+    );
+    box.appendChild(actions);
+    return box;
+  }
+
   function mcpRow(server) {
     const auth = mcpAuth.get(server.name);
+    const edit = mcpEdit.get(server.name);
     const row = el('div', 'mcp-row');
+    row.dataset.name = server.name;
     const text = el('div', 'opt-text');
     text.appendChild(el('span', 'opt-title', server.name));
     const meta = [];
@@ -1468,7 +1576,7 @@
     // via gh auth login or a secret, a claude.ai connector) need a reconnect.
     const elsewhere = isGitHubServer(server) || (auth && auth.mode === 'external');
     const canReconnect = server.status === 'failed' || (server.status === 'needs-auth' && elsewhere);
-    if (mcpState.live && canReconnect && !busy) {
+    if (mcpState.live && canReconnect && !busy && !edit) {
       side.appendChild(
         btn('Yeniden bağlan', 'mcp-retry', () => {
           mcpState = send({ type: 'mcp_reconnect', name: server.name }) ? null : { ...mcpState, error: 'Bağlantı yok, biraz sonra tekrar dene.' };
@@ -1476,8 +1584,20 @@
         })
       );
     }
+    const source = mcpSource(server);
+    if (!edit) {
+      if (server.status === 'disabled') {
+        side.appendChild(btn('Aç', 'mcp-retry primary', () => sendMcpEdit(server, { action: 'enable' })));
+      }
+      if (REMOVABLE_SOURCES.has(source)) {
+        text.appendChild(btn('Kaldır', 'mcp-text-btn', () => setMcpEdit(server.name, { action: 'remove', phase: 'confirm' })));
+      } else if (source === 'claudeai' && server.status !== 'disabled') {
+        text.appendChild(btn('Kapat', 'mcp-text-btn', () => setMcpEdit(server.name, { action: 'disable', phase: 'confirm' })));
+      }
+    }
     row.append(text, side);
-    if (auth) row.appendChild(mcpAuthPanel(server, auth));
+    if (auth && !edit) row.appendChild(mcpAuthPanel(server, auth));
+    if (edit) row.appendChild(mcpEditPanel(server, edit));
     return row;
   }
 
@@ -1487,6 +1607,7 @@
       return;
     }
     if (mcpState.error) body.appendChild(el('div', 'sheet-note error', mcpState.error));
+    if (mcpNotice) body.appendChild(el('div', 'sheet-note ok', mcpNotice));
     if (!mcpState.live) {
       body.appendChild(
         el('div', 'sheet-note', mcpState.servers.length
@@ -1548,7 +1669,16 @@
     else if (sheetView === 'mode') renderSheetMode(body, s);
     else if (sheetView === 'mcp') renderSheetMcp(body);
     else renderSheetMain(body, s);
+    const old = els.sheet.querySelector('.sheet-body');
+    const scroll = old && sheetShownView === sheetView && !sheetToTop ? old.scrollTop : 0;
+    sheetToTop = false;
     els.sheet.replaceChildren(el('div', 'sheet-handle'), header, body);
+    sheetShownView = sheetView;
+    if (scroll) body.scrollTop = scroll;
+    if (mcpReveal) {
+      if (sheetView === 'mcp') revealMcpRow(body, mcpReveal);
+      mcpReveal = '';
+    }
   }
 
   function openSheet(view) {
@@ -1557,6 +1687,7 @@
     if (document.activeElement === els.input) els.input.blur();
     sheetView = view || 'main';
     confirmBypass = false;
+    sheetShownView = null;
     renderSheet();
     els.sheet.hidden = false;
     els.sheetBackdrop.hidden = false;
@@ -1572,6 +1703,10 @@
     for (const [name, auth] of mcpAuth) {
       if (auth.phase === 'done' || auth.phase === 'error') mcpAuth.delete(name);
     }
+    for (const [name, edit] of mcpEdit) {
+      if (edit.phase === 'confirm') mcpEdit.delete(name);
+    }
+    mcpNotice = '';
     els.sheet.classList.remove('open');
     els.sheetBackdrop.classList.remove('open');
     setTimeout(() => {
@@ -1863,6 +1998,10 @@
   function handleMessage(msg) {
     switch (msg.type) {
       case 'hello':
+        // After a reconnect, answers to operations sent before are lost.
+        for (const [name, edit] of mcpEdit) {
+          if (edit.phase === 'busy') mcpEdit.delete(name);
+        }
         resetView();
         applyStatus(msg.status);
         if (msg.history.length) {
@@ -1902,8 +2041,43 @@
         break;
       case 'mcp':
         mcpState = { live: !!msg.live, servers: Array.isArray(msg.servers) ? msg.servers : [], error: msg.error || '' };
+        // A removed server leaves the list once Claude has restarted.
+        for (const [name, edit] of mcpEdit) {
+          if (edit.phase === 'removed' && !mcpState.servers.some((s) => s.name === name)) mcpEdit.delete(name);
+        }
         refreshMcpSheet();
         break;
+      case 'mcp_removed': {
+        if (typeof msg.name !== 'string') break;
+        if (msg.ok) {
+          mcpEdit.set(msg.name, { action: 'remove', phase: 'removed' });
+          const done = msg.already ? `“${msg.name}” zaten kaldırılmıştı.` : `“${msg.name}” kaldırıldı.`;
+          mcpNotice = msg.pending ? `${done} Claude şu an yanıt verdiği için yanıt bitince yeniden başlayacak.` : done;
+          // The row is about to go: show the note at the top instead.
+          if (!msg.pending) sheetToTop = true;
+        } else {
+          mcpEdit.set(msg.name, { action: 'remove', phase: 'confirm', error: msg.error || 'Kaldırılamadı.' });
+          mcpReveal = msg.name;
+        }
+        refreshMcpSheet();
+        break;
+      }
+      case 'mcp_toggled': {
+        if (typeof msg.name !== 'string') break;
+        if (msg.ok) {
+          mcpEdit.delete(msg.name);
+          mcpNotice = msg.enabled ? `“${msg.name}” açıldı.` : `“${msg.name}” bu oturumda kapatıldı.`;
+        } else if (msg.enabled) {
+          mcpEdit.delete(msg.name);
+          mcpNotice = '';
+          mcpState = mcpState ? { ...mcpState, error: msg.error || 'Açılamadı.' } : mcpState;
+        } else {
+          mcpEdit.set(msg.name, { action: 'disable', phase: 'confirm', error: msg.error || 'Kapatılamadı.' });
+          mcpReveal = msg.name;
+        }
+        refreshMcpSheet();
+        break;
+      }
       case 'mcp_auth': {
         if (typeof msg.name !== 'string') break;
         const prev = mcpAuth.get(msg.name) || {};
@@ -2004,6 +2178,8 @@
     sessionName = null;
     closeSheet();
     mcpAuth.clear();
+    mcpEdit.clear();
+    mcpNotice = '';
     mcpState = null;
     closeLightbox();
     hideLive();

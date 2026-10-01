@@ -321,8 +321,8 @@ araçları (`browser_navigate`, `browser_snapshot`, `browser_click`…) hazırd�
 Daha önce elle eklenmiş Playwright tanımları (ör. `--browser=chromium` ile,
 klasöre özel olanlar dahil) ilk açılışta bir kez bu tanıma çevrilir; eski dosya
 `~/.claude.json.agentweb-backup` olarak saklanır. Tanımı sonradan kendiniz
-değiştirirseniz ya da `claude mcp remove playwright -s user` ile kaldırırsanız
-uygulama ona bir daha dokunmaz.
+değiştirirseniz ya da kaldırırsanız (MCP ekranındaki **Kaldır** veya
+`claude mcp remove playwright -s user`) uygulama ona bir daha dokunmaz.
 
 Aynı şekilde iki sunucu daha tüm oturumlara tanımlanır:
 
@@ -332,7 +332,8 @@ Aynı şekilde iki sunucu daha tüm oturumlara tanımlanır:
 | `github` | GitHub MCP, token ile (bkz. bölüm 6). Token yoksa *Giriş gerekli* görünür; zararsızdır. |
 
 Eski sürümün eklediği `robloxstudio` tanımı, değiştirilmemişse ilk açılışta
-kaldırılır.
+kaldırılır. Bu üç hazır sunucu da kaldırılabilir; kaldırdığınız restart'tan
+sonra geri eklenmez.
 
 ### Durumu görme ve yeniden başlatma
 
@@ -346,6 +347,45 @@ başlatır.
 MCP ayarları Claude başlarken okunur. `~/.claude.json` ya da `.mcp.json`'ı
 değiştirdikten sonra aynı ekrandaki **Claude'u yeniden başlat**'a dokunun:
 konuşma korunur, bir sonraki mesajla birlikte yeni ayarlar yüklenir.
+
+### Sunucuyu kalıcı olarak kaldırma ya da kapatma
+
+Aynı ekranda her sunucunun adının altında bir düğme vardır:
+
+- **Kaldır** (kullanıcı, yerel ve proje kapsamındaki sunucular): sunucu
+  tanımlı olduğu dosyadan silinir; restart'tan sonra da geri gelmez. Dokununca
+  satırda ne olacağı yazar, **Kaldır** ile onaylarsınız (**Vazgeç** hiçbir şeyi
+  değiştirmez). Neyin silindiği kapsama göre değişir:
+
+  | Kapsam (satırda yazan) | Silindiği yer | Etkisi |
+  |---|---|---|
+  | tüm oturumlar | `~/.claude.json` → `mcpServers` | tüm oturumlardan gider |
+  | sadece bu klasör | `~/.claude.json` → `projects["<klasör>"]` | sadece bu oturumdan gider |
+  | bu klasörün .mcp.json'u | `<oturum klasörü>/.mcp.json` | dosyadan silinir |
+
+  Arka planda Terminal'deki `claude mcp remove --scope <kapsam> <isim>` ile
+  aynı işlem çalışır. Claude boştaysa hemen yeniden başlatılır (konuşma
+  korunur) ve sunucu listeden düşer; o an yanıt veriyorsa yanıt kesilmez, yanıt
+  bitince yeniden başlar. Kullanıcı kapsamındaki bir sunucu kaldırılınca boşta
+  bekleyen diğer oturumlar da bir sonraki mesajda onsuz başlar. Dosya bozuksa
+  ya da yazılamıyorsa hata satırda görünür ve hiçbir şey silinmez.
+
+  Geri eklemek için Terminal'de `claude mcp add` kullanın (örnek yukarıda).
+  Hazır sunucular (`playwright`, `agentweb`, `github`) tek komutla, hazır
+  ayarlarıyla geri gelir; ardından **Claude'u yeniden başlat**'a dokunun:
+
+  ```bash
+  node /app/scripts/setup-mcp.js --restore playwright
+  ```
+
+- **Kapat** (claude.ai bağlayıcıları: Context7, Firecrawl…): bu sunucular
+  claude.ai hesabınızda tanımlı olduğu için buradan silinemez. **Kapat** onu bu
+  oturumda kapatır ve **Aç**'a dokunana kadar kapalı kalır (Claude Code bunu
+  klasörün ayarında saklar). Tüm oturumlardan kaldırmak için claude.ai'da
+  **Ayarlar → Bağlayıcılar** (onay panelindeki bağlantı oraya götürür).
+
+Eklentilerden (plugin) ya da yönetici ayarlarından gelen sunucularda düğme
+yoktur; onlar kendi yerlerinden yönetilir.
 
 ### Proje `.mcp.json` dosyası ve onay
 

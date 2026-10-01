@@ -38,7 +38,8 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
 - **MCP:** Eklediğin sunucular hem sohbette hem terminalde kullanılır.
   Model menüsündeki **MCP sunucuları** ekranı her sunucunun durumunu
   gösterir; giriş isteyen (OAuth) sunuculara oradaki **Giriş yap** ile
-  telefondan da bağlanılır.
+  telefondan da bağlanılır, istemediğin sunucuyu **Kaldır** ile kalıcı olarak
+  silebilirsin.
 - **GitHub:** GitHub MCP, `gh` ve `git push` aynı token'la çalışır: Terminal'de
   bir kez `gh auth login` (telefonda kodla giriş) ya da `GITHUB_TOKEN` secret'ı.
 - **Hazır tarayıcı:** İmajda Google Chrome ve Playwright MCP kurulu gelir;
