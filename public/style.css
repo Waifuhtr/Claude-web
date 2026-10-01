@@ -418,6 +418,42 @@ button {
   color: var(--text-strong);
 }
 
+.view-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.vs-icon {
+  display: none;
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Phones: icons, with the label only on the active tab (and no label at all
+   on the narrowest screens) so the session name keeps its room. */
+@media (max-width: 600px) {
+  .view-switch button {
+    min-width: 38px;
+    padding: 0 10px;
+  }
+
+  .vs-icon {
+    display: block;
+  }
+
+  .view-switch button:not(.active) .vs-text {
+    display: none;
+  }
+}
+
 .empty-state {
   flex: 1;
   display: flex;
@@ -994,6 +1030,193 @@ details.turn-end[open] summary::after {
   color: var(--muted);
   font-size: 12.5px;
   font-style: italic;
+}
+
+/* Files Claude shared (share_file): one card per file, under the tool header */
+.shared-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.shared-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 10px 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.shared-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.shared-thumb {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel);
+  cursor: zoom-in;
+}
+
+.shared-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shared-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shared-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.shared-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shared-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn.small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* Phones: the buttons move under the name so long file names stay readable. */
+@media (max-width: 480px) {
+  .shared-file {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 8px;
+  }
+
+  .shared-actions {
+    grid-column: 2;
+  }
+
+  .shared-actions .btn {
+    min-height: 40px;
+    padding: 0 16px;
+  }
+}
+
+/* Text preview of a shared file */
+.text-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  background: rgba(1, 4, 9, 0.8);
+}
+
+.tv-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 900px;
+  max-height: 100%;
+  min-height: 0;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.tv-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.tv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.tv-body {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .text-viewer {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .tv-panel {
+    max-width: none;
+    border-radius: 0;
+    border: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 .tool-body {
@@ -2068,6 +2291,222 @@ details.turn-end[open] summary::after {
   }
 }
 
+/* ---- Virtual screen (Ekran) ---- */
+.screen-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #05070a;
+}
+
+.screen-canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.screen-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 7, 10, 0.82);
+}
+
+.screen-overlay-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 420px;
+  text-align: center;
+}
+
+.screen-spinner {
+  width: 26px;
+  height: 26px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.screen-msg {
+  margin: 0;
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.screen-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 3;
+  max-width: calc(100% - 24px);
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(22, 27, 34, 0.95);
+  color: var(--text-strong);
+  font-size: 13.5px;
+  transform: translateX(-50%);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+.screen-type {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--panel);
+}
+
+.screen-type input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: 16px;
+}
+
+.screen-type .btn.small {
+  min-height: 40px;
+}
+
+.screen-keys {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  border-top: 1px solid var(--border-soft);
+  background: var(--panel);
+}
+
+.screen-keys button {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 42px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.screen-keys button.on {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.screen-keys button:active {
+  border-color: var(--accent);
+}
+
+.screen-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-soft);
+  background: var(--panel);
+}
+
+.screen-bar button {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.screen-bar button.on {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.screen-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  margin: 0 2px 0 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.screen-dot.ok {
+  background: var(--ok);
+}
+
+.screen-dot.busy {
+  background: var(--warn-text);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.screen-dot.off {
+  background: var(--danger);
+}
+
+.clip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.clip-text {
+  flex: 1;
+  min-width: 0;
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 380px) {
+  .screen-bar {
+    gap: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .screen-bar button {
+    padding: 0 9px;
+    font-size: 13px;
+  }
+}
+
 /* ---- Desktop ---- */
 @media (min-width: 769px) {
   .sheet {
@@ -2176,6 +2615,10 @@ details.turn-end[open] summary::after {
   .view-switch button {
     padding: 0 9px;
     font-size: 12.5px;
+  }
+
+  .view-switch button .vs-text {
+    display: none;
   }
 
   .pill {

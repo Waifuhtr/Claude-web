@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Agent Web Browser
+Comment=Google Chrome on the Agent Web virtual screen
+Exec=agentweb-browser %U
+Terminal=false
+NoDisplay=true
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;

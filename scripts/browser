@@ -1,0 +1,26 @@
+#!/bin/sh
+# Sanal ekranda Google Chrome (Agent Web > Ekran sekmesi). Konteynerde
+# Chrome'un kendi sandbox'i calismadigi icin --no-sandbox ile acilir. Studio'nun
+# "tarayicida giris yap" akisi ve xdg-open bu komutu kullanir.
+: "${DISPLAY:=:99}"
+export DISPLAY
+
+profile="${AGENTWEB_BROWSER_PROFILE:-}"
+if [ -z "$profile" ]; then
+  if [ -d /var/lib/agentweb ] && [ -w /var/lib/agentweb ]; then
+    profile=/var/lib/agentweb/browser
+  else
+    profile="$HOME/.cache/agentweb-browser"
+  fi
+fi
+mkdir -p "$profile"
+
+for bin in google-chrome-stable google-chrome chromium chromium-browser; do
+  if command -v "$bin" >/dev/null 2>&1; then
+    exec "$bin" --no-sandbox --no-first-run --no-default-browser-check \
+      --disable-dev-shm-usage --password-store=basic \
+      --user-data-dir="$profile" "$@"
+  fi
+done
+echo "Tarayici bulunamadi (google-chrome kurulu degil)." >&2
+exit 1

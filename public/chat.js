@@ -61,7 +61,18 @@
     Task: 'Alt ajan',
     Agent: 'Alt ajan',
     Skill: 'Yetenek',
+    mcp__agentweb__share_file: 'Dosya paylaşımı',
+    mcp__agentweb__screenshot: 'Ekran görüntüsü',
+    mcp__agentweb__click: 'Ekran · tıklama',
+    mcp__agentweb__drag: 'Ekran · sürükleme',
+    mcp__agentweb__type_text: 'Ekran · yazma',
+    mcp__agentweb__press_keys: 'Ekran · tuş',
+    mcp__agentweb__scroll: 'Ekran · kaydırma',
+    mcp__agentweb__list_windows: 'Ekran · pencereler',
+    mcp__agentweb__focus_window: 'Ekran · pencere',
+    mcp__agentweb__launch_app: 'Uygulama başlatma',
   };
+  const APP_LABEL = { roblox_studio: 'Roblox Studio', vinegar_settings: 'Vinegar ayarları', browser: 'Tarayıcı' };
   const MCP_STATUS = { connected: 'Bağlı', failed: 'Hata', 'needs-auth': 'Giriş gerekli', pending: 'Bağlanıyor', disabled: 'Kapalı' };
   const MCP_SCOPE = {
     user: 'tüm oturumlar',
@@ -255,6 +266,7 @@
 
   function toolLabel(name) {
     if (!name) return 'Araç';
+    if (TOOL_LABEL[name]) return TOOL_LABEL[name];
     if (name.startsWith('mcp__')) {
       const parts = name.split('__');
       return `${parts[1]} · ${parts.slice(2).join('__')}`;
@@ -289,6 +301,18 @@
       case 'Task':
       case 'Agent':
         return i.description || i.subagent_type || '';
+      case 'mcp__agentweb__share_file': {
+        const paths = Array.isArray(i.paths) ? i.paths : typeof i.paths === 'string' ? [i.paths] : [];
+        return paths.map((p) => String(p).split('/').pop()).join(', ');
+      }
+      case 'mcp__agentweb__click':
+        return `(${i.x}, ${i.y})${i.button && i.button !== 'left' ? ` · ${i.button}` : ''}${i.double ? ' · çift' : ''}`;
+      case 'mcp__agentweb__drag':
+        return `(${i.from_x}, ${i.from_y}) → (${i.to_x}, ${i.to_y})`;
+      case 'mcp__agentweb__scroll':
+        return `${i.direction || ''} · (${i.x}, ${i.y})`;
+      case 'mcp__agentweb__launch_app':
+        return APP_LABEL[i.app] || i.app || '';
       default: {
         const first = Object.values(i).find((v) => typeof v === 'string');
         return first || '';
@@ -516,6 +540,113 @@
       entry.resultEl.replaceChildren(el('pre', `code${ev.isError ? ' error' : ''}`, ev.content));
     }
     if (Array.isArray(ev.images) && ev.images.length) renderToolImages(entry, ev.images);
+    if (Array.isArray(ev.files) && ev.files.length) renderSharedFiles(entry, ev.files);
+  }
+
+  // ---- files Claude shared (share_file) ----
+
+  function fileUrl(id) {
+    return `/api/files/${encodeURIComponent(sessionName || '')}/${encodeURIComponent(id)}`;
+  }
+
+  function fileKind(name) {
+    const ext = (String(name || '').match(/\.([A-Za-z0-9]{1,8})$/) || [])[1];
+    return ext ? ext.toUpperCase().slice(0, 4) : 'DOSYA';
+  }
+
+  function sharedFileCard(file) {
+    const card = el('div', 'shared-file');
+    if (file.mediaId) {
+      const { button, img } = thumbButton(mediaUrl(file.mediaId), file.name, 'shared-thumb');
+      img.addEventListener('error', () => button.replaceWith(el('span', 'shared-icon', fileKind(file.name))));
+      card.appendChild(button);
+    } else {
+      card.appendChild(el('span', 'shared-icon', fileKind(file.name)));
+    }
+    const info = el('div', 'shared-info');
+    info.append(el('span', 'shared-name', file.name), el('span', 'shared-meta', formatSize(file.size)));
+    card.appendChild(info);
+    const actions = el('div', 'shared-actions');
+    if (file.text) {
+      const view = btn('Görüntüle', 'btn ghost small', () => openTextViewer(file));
+      view.setAttribute('aria-label', `${file.name} dosyasını görüntüle`);
+      actions.appendChild(view);
+    }
+    const download = el('a', 'btn primary small', 'İndir');
+    download.href = fileUrl(file.id);
+    download.setAttribute('download', file.name);
+    download.setAttribute('aria-label', `${file.name} dosyasını indir`);
+    actions.appendChild(download);
+    card.appendChild(actions);
+    return card;
+  }
+
+  // Like screenshots, shared files stay visible while the tool card is collapsed.
+  function renderSharedFiles(entry, files) {
+    const box = el('div', 'shared-files');
+    for (const file of files) {
+      if (file && file.id) box.appendChild(sharedFileCard(file));
+    }
+    entry.card.insertBefore(box, entry.card.querySelector('.tool-body'));
+  }
+
+  const textViewer = el('div', 'text-viewer');
+  textViewer.hidden = true;
+  textViewer.setAttribute('role', 'dialog');
+  textViewer.setAttribute('aria-modal', 'true');
+  const tvPanel = el('div', 'tv-panel');
+  const tvHead = el('div', 'tv-head');
+  const tvTitle = el('span', 'tv-title');
+  const tvCopy = btn('Kopyala', 'btn ghost small', async () => {
+    try {
+      await navigator.clipboard.writeText(tvBody.textContent);
+      tvCopy.textContent = 'Kopyalandı';
+    } catch {
+      tvCopy.textContent = 'Kopyalanamadı';
+    }
+    setTimeout(() => {
+      tvCopy.textContent = 'Kopyala';
+    }, 1500);
+  });
+  const tvDownload = el('a', 'btn primary small', 'İndir');
+  const tvBody = el('pre', 'tv-body');
+  tvHead.append(tvTitle, tvCopy, tvDownload, iconBtn('✕', 'Kapat', closeTextViewer));
+  tvPanel.append(tvHead, tvBody);
+  textViewer.appendChild(tvPanel);
+  document.body.appendChild(textViewer);
+  textViewer.addEventListener('click', (e) => {
+    if (e.target === textViewer) closeTextViewer();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !textViewer.hidden) closeTextViewer();
+  });
+  let textViewerSeq = 0;
+
+  async function openTextViewer(file) {
+    const seq = ++textViewerSeq;
+    tvTitle.textContent = file.name;
+    textViewer.setAttribute('aria-label', file.name);
+    tvDownload.href = fileUrl(file.id);
+    tvDownload.setAttribute('download', file.name);
+    tvBody.textContent = 'Yükleniyor…';
+    tvCopy.disabled = true;
+    textViewer.hidden = false;
+    try {
+      const res = await fetch(`${fileUrl(file.id)}?view=1`);
+      if (!res.ok) throw new Error(String(res.status));
+      const content = await res.text();
+      if (seq !== textViewerSeq) return;
+      tvBody.textContent = content;
+      tvCopy.disabled = false;
+    } catch {
+      if (seq === textViewerSeq) tvBody.textContent = 'Önizleme açılamadı; dosyayı indirerek açabilirsin.';
+    }
+  }
+
+  function closeTextViewer() {
+    textViewerSeq += 1;
+    textViewer.hidden = true;
+    tvBody.textContent = '';
   }
 
   // Screenshots stay visible under the tool's header even while it is collapsed.
@@ -555,13 +686,21 @@
     Task: 'Claude bir alt ajan başlatmak istiyor',
     Agent: 'Claude bir alt ajan başlatmak istiyor',
     Skill: 'Claude bir yetenek kullanmak istiyor',
+    mcp__agentweb__click: 'Claude sanal ekranda tıklamak istiyor',
+    mcp__agentweb__drag: 'Claude sanal ekranda sürükleme yapmak istiyor',
+    mcp__agentweb__type_text: 'Claude sanal ekrana yazı yazmak istiyor',
+    mcp__agentweb__press_keys: 'Claude sanal ekranda tuşa basmak istiyor',
+    mcp__agentweb__scroll: 'Claude sanal ekranda kaydırmak istiyor',
+    mcp__agentweb__focus_window: 'Claude bir pencereyi öne almak istiyor',
+    mcp__agentweb__launch_app: 'Claude sanal ekranda bir uygulama başlatmak istiyor',
   };
 
   // Claude Code's own prompt titles are English; known tools get a Turkish one.
   function permTitle(ev) {
     const name = ev.toolName || '';
+    if (PERM_TITLE[name]) return PERM_TITLE[name];
     if (name.startsWith('mcp__')) return `Claude bir MCP aracı kullanmak istiyor: ${toolLabel(name)}`;
-    return PERM_TITLE[name] || ev.title || `Claude şunu kullanmak istiyor: ${toolLabel(name)}`;
+    return ev.title || `Claude şunu kullanmak istiyor: ${toolLabel(name)}`;
   }
 
   function buildToolPerm(card, ev, entry) {

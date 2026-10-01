@@ -26,6 +26,8 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
     olarak gelir.
   - Mesaja dosya ve görsel eklenebilir; araçların aldığı ekran görüntüleri
     sohbette görünür. Her yanıtın yanında süre ve harcanan token yazar.
+  - Claude da sana dosya gönderebilir ("bunu txt olarak at"): sohbette
+    indirme kartı olarak çıkar, metin dosyaları sohbetten çıkmadan okunur.
   - Yanıtı ■ ile durdurabilir, ✎ ile yeni sohbet başlatabilirsin. Konuşmalar
     sunucuda saklanır; sayfayı kapatıp açınca kaldığın yerden devam eder.
 - **Terminal sekmesi:** tmux + xterm.js ile gerçek kabuk ve `claude` CLI'si.
@@ -38,6 +40,12 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
   "Claude'u yeniden başlat" model menüsündeki **MCP sunucuları** ekranındadır.
 - **Hazır tarayıcı:** İmajda Google Chrome ve Playwright MCP kurulu gelir;
   her oturumda elle ayar yapmadan web sayfalarında gezinebilir.
+- **Ekran sekmesi (sanal ekran):** Konteynerdeki sanal masaüstünü canlı
+  gösterir; telefondan dokunarak ve yazarak kontrol edilir. Claude da aynı
+  ekranı görüp tıklayabilir, yazabilir.
+- **Roblox Studio:** Vinegar (Wine) ile sanal ekranda çalışır; Claude ona
+  Roblox Studio MCP ile bağlanıp script yazar, Luau çalıştırır, playtest
+  yapar. Roblox girişini Ekran sekmesinden bir kez yaparsın.
 - **Kalıcılık:** `/data` yoluna bir Storage Bucket bağlıysa `HOME` otomatik
   olarak oraya yönlendirilir (giriş bilgisi, sohbet geçmişi, MCP ayarları ve
   proje dosyaları kalıcı olur). Bucket yoksa her yeniden başlatmada sıfırlanır.

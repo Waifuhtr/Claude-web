@@ -77,7 +77,9 @@ Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/
 
 - **Model düğmesi** (yazma alanının altında solda): Model listesini açar.
   Liste, ilk mesajdan sonra Claude Code'un bu hesap için bildirdiği
-  modellerle güncellenir; eski sürümler **Diğer modeller** altındadır.
+  modellerle güncellenir; **Sonnet 5.5** gibi yeni modeller, Claude Code'un
+  listesinde henüz olmasalar da her zaman seçilebilir. Eski sürümler **Diğer
+  modeller** altındadır.
   - **Effort:** Claude'un ne kadar derin düşüneceği. *Varsayılan* modelin
     kendi seviyesidir; *Düşük* en hızlısı, *Çok yüksek* kodlama ve uzun
     işler için önerilen, *Maksimum* en kapsamlısıdır. Effort desteklemeyen
@@ -113,6 +115,14 @@ Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/
 - **Ekran görüntüleri:** Playwright gibi bir araç ekran görüntüsü aldığında
   ya da Claude bir görsel dosyasını okuduğunda görsel, aracın kartında
   görünür; dokununca büyür, bir daha dokununca gerçek boyutta açılır.
+- **Claude'dan dosya alma:** "Bunu txt olarak gönder", "raporu dosya olarak
+  ver", "projeyi zip'le at" gibi isteklerde Claude dosyayı oluşturup
+  `share_file` aracıyla sohbete koyar. Dosya bir indirme kartı olarak görünür:
+  **İndir** ile cihazına kaydedersin; metin dosyalarında **Görüntüle** ile
+  sohbetten çıkmadan okuyup kopyalayabilirsin, görsellerin küçük önizlemesi
+  olur. Dosya başına 50 MB, tek seferde 10 dosya; klasörler önce arşivlenir.
+  Paylaşılan kopyalar sohbetle birlikte saklanır (yeni sohbet başlatınca
+  silinir); çalışma klasöründeki asıl dosyaya dokunulmaz.
 - **Süre ve token:** Claude çalışırken yazma alanının üstünde geçen süre ve
   harcanan token canlı görünür (onay beklerken "Onay bekliyor" yazar). Her
   yanıtın sonundaki satırda süre, okunan (↑) ve yazılan (↓) token yazar;
@@ -124,7 +134,88 @@ Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/
 - Bilgisayarda **Enter** gönderir, **Shift+Enter** yeni satır açar; telefonda
   Enter yeni satırdır, gönder düğmesini kullanın.
 
-## 5. Kalıcılık (Storage Bucket)
+## 5. Sanal ekran (Ekran sekmesi)
+
+Konteynerde gerçek bir masaüstü yoktur; bunun yerine bir sanal ekran (Xvfb,
+varsayılan 1440×900) çalışır. Claude'un ve terminalin açtığı grafik
+programlar (Roblox Studio, tarayıcı…) bu ekrana çizilir. Üst çubuktaki
+**Ekran** sekmesi onu canlı gösterir ve kontrol etmeni sağlar (noVNC; görüntü
+yalnızca parolalı oturumundan, Space'in kendi adresi üzerinden gelir).
+
+- **Telefonda:** Dokun = tıkla, iki parmakla dokun = sağ tık, iki parmakla
+  sürükle = fare tekerleği. **1:1** düğmesi görüntüyü gerçek boyuta getirir;
+  bu modda tek parmakla sürükleyerek görüntüyü kaydırırsın (dokunmak yine
+  tıklar). **Sığdır** tüm ekranı sekmeye sığdırır; bu modda tek parmakla
+  sürüklemek fareyle sürüklemek demektir. Telefonu yatay tutmak işi
+  kolaylaştırır.
+- **Klavye:** Telefonda **Klavye** düğmesi bir yazı kutusu açar: yazıp **Yaz**
+  dersen metin tuş tuş gönderilir; **Yapıştır** metni uzak panoya koyup
+  Ctrl+V'ye basar (uzun ya da Türkçe karakterli metinler için daha
+  güvenilir). **Tuşlar** satırında Esc, Tab, ⌫, Del, Enter, oklar, F5 ve
+  basılı kalan Ctrl/Alt/Shift vardır (ör. Ctrl'ye dokunup Klavye'den `s`
+  yazınca Ctrl+S gider). Bilgisayarda görüntüye tıklayıp doğrudan klavyeyi
+  kullanabilirsin.
+- **Menü:** Roblox Studio, Vinegar ayarları ve tarayıcıyı başlatma; uzak
+  panodaki metni kopyalama; yeniden bağlanma ve ekranı yeniden başlatma
+  (açık tüm pencereleri kapatır).
+- **Claude'un ekran araçları:** `agentweb` MCP sunucusu Claude'a ekran
+  görüntüsü alma, tıklama, sürükleme, yazma, tuşa basma, kaydırma, pencere
+  listeleme/öne alma ve uygulama başlatma araçları verir. Ekran görüntüsü ve
+  pencere listesi sormadan çalışır; ekranı değiştiren araçlar izin kartı
+  çıkarır ("Her zaman izin ver" ile o oturum için kalıcı yapabilirsin).
+- Ayarlar (Space **Variables**): `SCREEN_RESOLUTION` (ör. `1280x800`,
+  `1920x1080`; ekran kartı olmadığı için büyük çözünürlük yavaşlatır),
+  `AGENTWEB_DISPLAY=0` (sanal ekranı tamamen kapatır).
+
+## 6. Roblox Studio (Vinegar + Roblox Studio MCP)
+
+Roblox Studio Windows programıdır; burada
+[Vinegar](https://github.com/vinegarhq/vinegar) ile, Wine üzerinden sanal
+ekranda çalışır. Claude ona
+[Roblox Studio MCP](https://github.com/Chrrxs/robloxstudio-mcp) (`robloxstudio`
+sunucusu) ile bağlanır: yer (place) yapısını okuma/düzenleme, script yazma,
+Luau çalıştırma, playtest başlatma, log/ekran görüntüsü/profil alma, asset
+arama ve ekleme gibi ~50 araç.
+
+**İlk kurulum (bir kez):**
+
+1. **Ekran** sekmesini aç, **Menü → Roblox Studio'yu başlat**'a dokun (ya da
+   sohbette Claude'a "Roblox Studio'yu aç" de). İlk açılışta Vinegar Wine'ı,
+   Studio'yu ve WebView2'yi indirip kurar: birkaç dakika sürer, ilerleme
+   Vinegar penceresinde görünür.
+2. Studio giriş ekranı gelince Roblox hesabınla Ekran sekmesinden giriş yap
+   (yazmak için **Klavye**). Parolanı sohbete yazma; Claude'dan da isteme.
+   Studio gömülü giriş penceresini açamazsa tarayıcıda giriş ister: sanal
+   ekranda Chrome açılır, girişten sonra "Vinegar'ı aç" sorusuna **Aç** de.
+3. Studio açılınca MCP eklentisi (MCPPlugin) otomatik yüklü gelir ve Claude'a
+   bağlanır. Studio eklenti için izin sorarsa Ekran sekmesinden onayla.
+   Sohbette "Studio'ya bağlı mısın?" diye sorarak deneyebilirsin
+   (`get_connected_instances`).
+
+**Bilmen gerekenler:**
+
+- **Ekran kartı yok:** Görüntü işlemci (CPU) ile yazılımsal olarak çizilir.
+  Studio'nun menüleri ve script düzenleme rahat çalışır; 3B görünüm ve
+  playtest yavaş olabilir. Claude işin çoğunu MCP üzerinden (görüntüye
+  ihtiyaç duymadan) yapar.
+- **3B görünüm siyahsa ya da Studio açılır açılmaz kapanıyorsa:** Menü →
+  **Vinegar ayarları** → *Renderer* seçeneğini `D3D11` yap (varsayılan
+  `DXVK`), Studio'yu kapatıp yeniden başlat.
+- **Nerede ne tutulur:** Wine, Studio ve Wine prefix'i (~2–3 GB) yerel diskte
+  (`/var/lib/agentweb/roblox`) durur ve Space yeniden başladığında yeniden
+  indirilir. Roblox girişi ve Studio ayarları, Studio normal kapatıldığında
+  kalıcı HOME'a (`~/.config/agentweb/roblox/settings.reg`) yedeklenir ve
+  sonraki kurulumda geri yüklenir; yani Studio'yu menüden kapatmayı
+  alışkanlık edin. Studio'da kaydettiğin `.rbxl` dosyaları `~/Documents`
+  altındadır (Storage Bucket varsa kalıcı).
+- **Terminal/Claude komutları:** `roblox-studio` (arka planda başlatır),
+  `roblox-studio dosya.rbxl` (bir yer dosyasını açar), `vinegar manage`
+  (Vinegar ayarları). Günlükler: `/tmp/agentweb-logs/`.
+- Studio birden fazla oturumda aynı anda tek bir kopya olarak çalışır; tüm
+  oturumlardaki Claude'lar aynı Studio'ya bağlanır (MCP sunucusu ilk açılanı
+  ana sunucu yapar, diğerleri ona yönlenir).
+
+## 7. Kalıcılık (Storage Bucket)
 
 Bucket bağlı değilse **hiçbir şey** (giriş bilgisi, sohbet geçmişi, MCP
 ayarları, proje dosyaları) bir sonraki restart'ta hayatta kalmaz —
@@ -136,7 +227,7 @@ mount olup olmadığını otomatik algılar (cihaz kimliği karşılaştırması
 algılarsa `HOME`'u `/data/home`'a yönlendirir. Sohbet geçmişi
 `$HOME/.cc-web/chats/` altında tutulur.
 
-## 6. MCP sunucuları
+## 8. MCP sunucuları
 
 ### Sunucu listesi nereden geliyor?
 
@@ -189,6 +280,19 @@ klasöre özel olanlar dahil) ilk açılışta bir kez bu tanıma çevrilir; esk
 değiştirirseniz ya da `claude mcp remove playwright -s user` ile kaldırırsanız
 uygulama ona bir daha dokunmaz.
 
+Aynı şekilde iki sunucu daha tüm oturumlara tanımlanır:
+
+| İsim | Ne yapar |
+|---|---|
+| `agentweb` | Agent Web'in kendi araçları: `share_file` (sohbete dosya gönderme) ve sanal ekran araçları (bkz. bölüm 5). |
+| `robloxstudio` | Roblox Studio MCP (`@chrrxs/robloxstudio-mcp`, sabit sürüm). `scripts/roblox-mcp` sarmalayıcısıyla çalışır; Studio eklentisini Vinegar'ın Studio'sunun eklenti klasörüne kurar (bkz. bölüm 6). |
+
+Daha önce `claude mcp add robloxstudio -- npx -y @chrrxs/robloxstudio-mcp@latest ...`
+gibi elle eklenmiş bir tanım varsa ilk açılışta bu sarmalayıcıya çevrilir
+(eklentinin doğru klasöre kurulması için gereklidir). Salt okunur
+"inspector" sürümüne dokunulmaz. Kullanmak istemezseniz
+`claude mcp remove robloxstudio -s user` ile kaldırabilirsiniz.
+
 ### Durumu görme ve yeniden başlatma
 
 Sohbette model düğmesine dokunup **MCP sunucuları** satırını açın: her
@@ -212,7 +316,7 @@ API key/token gerektiren sunucular için değeri Space Secret olarak tanımlayı
 yazıp Storage Bucket sayesinde kalıcı tutabilirsiniz. `npx`/`uvx` ile çalışan
 MCP sunucuları ilk çalıştırmada paketi otomatik indirir (443 üzerinden).
 
-## 7. Ağ kısıtlaması
+## 9. Ağ kısıtlaması
 
 HF Space'lerin dışarı giden trafiği sadece **80, 443, 8080** portlarına
 gidebilir. Pratikte:
@@ -223,7 +327,7 @@ gidebilir. Pratikte:
   6379, ...), özel TCP/UDP protokolleri. Bu tür bir ihtiyaç için Cloudflare
   Tunnel veya Tailscale gibi 443 üzerinden tünelleyen bir katman kullanın.
 
-## 8. Sorun giderme
+## 10. Sorun giderme
 
 - **Space açılmıyor / hemen kapanıyor:** Space'in **Logs** sekmesine bakın;
   `entrypoint.sh` ve sunucu açıklayıcı Türkçe mesajlar yazar (özellikle
@@ -245,3 +349,16 @@ gidebilir. Pratikte:
 - **Terminalde `claude` bulunamıyor:** Docker imajında `npm install -g
   @anthropic-ai/claude-code` build aşamasında çalışır; build loglarını
   kontrol edin.
+- **Ekran sekmesi "Bu kurulumda sanal ekran yok" diyor:** Space eski
+  Dockerfile ile build edilmiş. Settings > **Factory rebuild** yapın.
+- **Ekran sekmesi sürekli "yeniden bağlanılıyor":** Menü → **Ekranı yeniden
+  başlat**. Düzelmezse terminalde `cat /tmp/agentweb-logs/xvfb.log
+  /tmp/agentweb-logs/vnc.log` çıktısına bakın.
+- **Roblox Studio açılmıyor:** `cat /tmp/agentweb-logs/roblox_studio.log` ve
+  Vinegar'ın kendi günlüğü (`/var/lib/agentweb/roblox/cache/vinegar/logs/`).
+  Renderer'ı `D3D11` yapmayı deneyin (bölüm 6). Wine verisini sıfırlamak
+  için Vinegar ayarlarındaki *Delete Prefix Data* kullanılabilir.
+- **Claude Studio'yu göremiyor:** Studio açık ve giriş yapılmış olmalı.
+  Sohbette model düğmesi → **MCP sunucuları**'nda `robloxstudio` *Bağlı*
+  görünmeli; değilse **Yeniden bağlan**. Studio'da eklenti panelinde
+  bağlantı durumu görünür.

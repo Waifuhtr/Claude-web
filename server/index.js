@@ -6,6 +6,7 @@ const { WebSocketServer } = require('ws');
 const auth = require('./auth');
 const { SessionManager, isValidName } = require('./sessions');
 const { ChatManager } = require('./chat');
+const { DisplayManager } = require('./display');
 
 const PORT = parseInt(process.env.PORT || '7860', 10);
 const HOME = process.env.HOME || '/home/node';
@@ -21,9 +22,14 @@ if (!auth.APP_PASSWORD) {
 
 // Claude'un Bash araci ve terminal kabugu kendi ortamini okuyabilir; web
 // arayuzunun parolasi ve cookie imza anahtari oraya sizmamali.
-const childEnv = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'agent-web/1.0' };
-delete childEnv.APP_PASSWORD;
-delete childEnv.SESSION_SECRET;
+const baseEnv = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'agent-web/1.0' };
+delete baseEnv.APP_PASSWORD;
+delete baseEnv.SESSION_SECRET;
+
+// Sanal ekran (Ekran sekmesi): Claude'un ve terminalin actigi pencereler
+// (Roblox Studio, tarayici...) DISPLAY uzerinden buraya cizilir.
+const display = new DisplayManager({ env: baseEnv });
+const childEnv = { ...baseEnv, ...display.childEnv() };
 
 const sessionManager = new SessionManager({
   workspaceRoot: WORKSPACE_ROOT,
@@ -37,6 +43,7 @@ const chatManager = new ChatManager({
   workspaceRoot: WORKSPACE_ROOT,
   childEnv,
   ensureWorkspace: (name) => sessionManager.ensureWorkspace(name),
+  displayAvailable: display.available,
 });
 
 const VENDOR_FILES = {
@@ -51,6 +58,9 @@ app.disable('x-powered-by');
 
 app.use('/vendor/xterm', express.static(path.join(NODE_MODULES, '@xterm', 'xterm')));
 app.use('/vendor/xterm-addon-fit', express.static(path.join(NODE_MODULES, '@xterm', 'addon-fit')));
+// noVNC ships plain ES modules (core/rfb.js and what it imports).
+app.use('/vendor/novnc/core', express.static(path.join(NODE_MODULES, '@novnc', 'novnc', 'core')));
+app.use('/vendor/novnc/vendor', express.static(path.join(NODE_MODULES, '@novnc', 'novnc', 'vendor')));
 app.get('/vendor/lib/:file', (req, res) => {
   const rel = VENDOR_FILES[req.params.file];
   if (!rel) return res.sendStatus(404);
@@ -123,6 +133,56 @@ app.get('/api/media/:name/:file', (req, res) => {
   res.sendFile(file);
 });
 
+// Files Claude shared with share_file. Always a download (never rendered as
+// a page); ?view=1 returns a text file as plain text for the in-chat preview.
+app.get('/api/files/:name/:id', (req, res) => {
+  const file = chatManager.sharedFile(req.params.name, req.params.id);
+  if (!file) return res.sendStatus(404);
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, no-cache',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+  });
+  if (req.query.view === '1') {
+    if (!file.text) return res.sendStatus(415);
+    res.type('text/plain; charset=utf-8');
+    res.set('Content-Disposition', 'inline');
+    return res.sendFile(file.abs);
+  }
+  res.attachment(file.name);
+  res.type('application/octet-stream');
+  res.sendFile(file.abs);
+});
+
+app.get('/api/display', (req, res) => {
+  res.json(display.status());
+});
+
+app.post('/api/display/start', async (req, res) => {
+  try {
+    await display.ensure();
+    res.json(display.status());
+  } catch (err) {
+    res.status(503).json({ ...display.status(), error: err.message });
+  }
+});
+
+app.post('/api/display/restart', async (req, res) => {
+  try {
+    res.json(await display.restart());
+  } catch (err) {
+    res.status(503).json({ ...display.status(), error: err.message });
+  }
+});
+
+app.post('/api/display/launch', async (req, res) => {
+  try {
+    res.json(await display.launch(String((req.body || {}).app || '')));
+  } catch (err) {
+    res.status(err.status || 503).json({ error: err.message });
+  }
+});
+
 app.delete('/api/sessions/:name', (req, res) => {
   const { name } = req.params;
   if (!isValidName(name)) {
@@ -136,6 +196,12 @@ app.delete('/api/sessions/:name', (req, res) => {
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+// noVNC may ask for the "binary" subprotocol (websockify convention).
+const vncWss = new WebSocketServer({
+  noServer: true,
+  maxPayload: 4 * 1024 * 1024,
+  handleProtocols: (protocols) => (protocols.has('binary') ? 'binary' : false),
+});
 
 server.on('upgrade', (req, socket, head) => {
   let pathname;
@@ -143,6 +209,16 @@ server.on('upgrade', (req, socket, head) => {
     pathname = new URL(req.url, 'http://placeholder').pathname;
   } catch {
     socket.destroy();
+    return;
+  }
+  // Two path segments, so it can never collide with a session called "display".
+  if (pathname === '/ws/display/vnc') {
+    if (!auth.isAuthenticated(req) || !display.available) {
+      socket.write(`HTTP/1.1 ${display.available ? '401 Unauthorized' : '503 Service Unavailable'}\r\n\r\n`);
+      socket.destroy();
+      return;
+    }
+    vncWss.handleUpgrade(req, socket, head, (ws) => display.attachVnc(ws));
     return;
   }
   const match = pathname.match(/^\/ws\/(chat\/)?([A-Za-z0-9_-]{1,32})$/);
@@ -210,4 +286,14 @@ function attachTerminal(ws, name) {
 server.listen(PORT, () => {
   console.log(`[server] Agent Web ${PORT} portunda dinliyor`);
   console.log(`[server] HOME=${HOME} WORKSPACE_ROOT=${WORKSPACE_ROOT}`);
+  if (display.available) {
+    // Started right away so GUI programs Claude opens always have a screen;
+    // VNC itself only starts when someone opens the Ekran tab.
+    display
+      .ensure()
+      .then(() => console.log(`[display] Sanal ekran hazir (DISPLAY=${display.display}, ${display.resolution})`))
+      .catch((err) => console.error('[display]', err.message));
+  } else {
+    console.log('[display] Sanal ekran kapali ya da Xvfb kurulu degil; Ekran sekmesi kullanilamaz.');
+  }
 });

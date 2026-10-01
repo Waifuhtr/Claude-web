@@ -39,8 +39,18 @@
           <span class="run-dot" id="runDot" hidden></span>
         </div>
         <div class="view-switch" id="viewSwitch" hidden>
-          <button type="button" data-view="chat" class="active">Sohbet</button>
-          <button type="button" data-view="terminal">Terminal</button>
+          <button type="button" data-view="chat" class="active" aria-label="Sohbet" title="Sohbet">
+            <svg class="vs-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.3A8.5 8.5 0 1 1 21 11.5z" /></svg>
+            <span class="vs-text">Sohbet</span>
+          </button>
+          <button type="button" data-view="terminal" aria-label="Terminal" title="Terminal">
+            <svg class="vs-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" /></svg>
+            <span class="vs-text">Terminal</span>
+          </button>
+          <button type="button" data-view="screen" aria-label="Ekran" title="Ekran">
+            <svg class="vs-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
+            <span class="vs-text">Ekran</span>
+          </button>
         </div>
         <button type="button" id="newChatBtn" class="icon-btn always" aria-label="Yeni sohbet" title="Yeni sohbet" hidden>✎</button>
       </header>
@@ -90,11 +100,55 @@
           <button type="button" data-key="enter" aria-label="Enter">↵</button>
         </div>
       </section>
+
+      <section class="view screen-view" id="screenView" hidden>
+        <div class="screen-stage" id="screenStage">
+          <div class="screen-canvas" id="screenCanvas"></div>
+          <div class="screen-overlay" id="screenOverlay">
+            <div class="screen-overlay-box">
+              <span class="screen-spinner" id="screenSpinner" aria-hidden="true"></span>
+              <p class="screen-msg" id="screenMsg" aria-live="polite">Ekran hazırlanıyor…</p>
+              <button type="button" class="btn primary" id="screenRetryBtn" hidden>Yeniden bağlan</button>
+            </div>
+          </div>
+          <div class="screen-toast" id="screenToast" role="status" hidden></div>
+        </div>
+        <form class="screen-type" id="screenTypeForm" hidden>
+          <input type="text" id="screenTypeInput" placeholder="Ekrana yazılacak metin" maxlength="2000" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Ekrana yazılacak metin" />
+          <button type="submit" class="btn primary small">Yaz</button>
+          <button type="button" class="btn ghost small" id="screenPasteBtn" title="Metni uzak panoya koyup Ctrl+V ile yapıştırır">Yapıştır</button>
+        </form>
+        <div class="screen-keys" id="screenKeys" hidden>
+          <button type="button" data-mod="ctrl" aria-pressed="false">Ctrl</button>
+          <button type="button" data-mod="alt" aria-pressed="false">Alt</button>
+          <button type="button" data-mod="shift" aria-pressed="false">Shift</button>
+          <button type="button" data-key="Escape">Esc</button>
+          <button type="button" data-key="Tab">Tab</button>
+          <button type="button" data-key="BackSpace" aria-label="Geri sil">⌫</button>
+          <button type="button" data-key="Delete">Del</button>
+          <button type="button" data-key="Return" aria-label="Enter">↵</button>
+          <button type="button" data-key="Left" aria-label="Sol ok">←</button>
+          <button type="button" data-key="Up" aria-label="Yukarı ok">↑</button>
+          <button type="button" data-key="Down" aria-label="Aşağı ok">↓</button>
+          <button type="button" data-key="Right" aria-label="Sağ ok">→</button>
+          <button type="button" data-key="F5">F5</button>
+        </div>
+        <div class="screen-bar" id="screenBar">
+          <span class="screen-dot busy" id="screenDot" aria-hidden="true"></span>
+          <button type="button" id="screenKeyboardBtn" aria-pressed="false">Klavye</button>
+          <button type="button" id="screenKeysBtn" aria-pressed="false">Tuşlar</button>
+          <button type="button" id="screenZoomBtn">1:1</button>
+          <span class="spacer"></span>
+          <button type="button" id="screenMenuBtn">Menü</button>
+        </div>
+      </section>
     </main>
   </div>
 
   <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
   <div class="sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-label="Model ayarları" hidden></div>
+  <div class="sheet-backdrop" id="screenSheetBackdrop" hidden></div>
+  <div class="sheet" id="screenSheet" role="dialog" aria-modal="true" aria-label="Ekran menüsü" hidden></div>
 
   <script src="/vendor/xterm/lib/xterm.js"></script>
   <script src="/vendor/xterm-addon-fit/lib/addon-fit.js"></script>
@@ -103,5 +157,6 @@
   <script src="/vendor/lib/highlight.js"></script>
   <script src="/chat.js"></script>
   <script src="/app.js"></script>
+  <script type="module" src="/screen.js"></script>
 </body>
 </html>

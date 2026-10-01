@@ -8,6 +8,7 @@
   const emptyState = $('emptyState');
   const chatView = $('chatView');
   const terminalView = $('terminalView');
+  const screenView = $('screenView');
   const terminalEl = $('terminal');
   const logoutBtn = $('logoutBtn');
   const sidebarEl = $('sidebar');
@@ -31,9 +32,14 @@
   const VIEW_KEY = 'agentweb.view';
   const SESSION_KEY = 'agentweb.session';
 
+  const VIEWS = ['chat', 'terminal', 'screen'];
+
   let activeName = null;
-  let activeView = readPref(VIEW_KEY) === 'terminal' ? 'terminal' : 'chat';
+  let activeView = VIEWS.includes(readPref(VIEW_KEY)) ? readPref(VIEW_KEY) : 'chat';
   let sessions = [];
+  // The Ekran tab lives in a module script (screen.js) that loads after this
+  // file; it reads this when it is ready.
+  let screenWanted = false;
 
   // Terminal state (only alive while the terminal tab is shown).
   let term = null;
@@ -181,6 +187,7 @@
 
   function closeSession() {
     closeTerminal();
+    setScreen(false);
     window.ChatView.close();
     activeName = null;
     writePref(SESSION_KEY, null);
@@ -190,14 +197,25 @@
     newChatBtn.hidden = true;
     chatView.hidden = true;
     terminalView.hidden = true;
+    screenView.hidden = true;
     emptyState.hidden = false;
     renderSessionList();
   }
 
   // ---- views ----
 
+  function setScreen(on) {
+    screenWanted = on;
+    if (window.ScreenView) window.ScreenView.setVisible(on);
+  }
+
+  window.addEventListener('screenview-ready', () => {
+    if (window.ScreenView) window.ScreenView.setVisible(screenWanted);
+  });
+
   function showView(view, force) {
     if (!activeName) return;
+    if (!VIEWS.includes(view)) view = 'chat';
     if (view === activeView && !force) return;
     activeView = view;
     writePref(VIEW_KEY, view);
@@ -206,16 +224,15 @@
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
-    const chat = view === 'chat';
-    chatView.hidden = !chat;
-    terminalView.hidden = chat;
-    newChatBtn.hidden = !chat;
-    if (chat) {
-      closeTerminal();
-      window.ChatView.open(activeName);
-    } else {
-      openTerminal(activeName);
-    }
+    chatView.hidden = view !== 'chat';
+    terminalView.hidden = view !== 'terminal';
+    screenView.hidden = view !== 'screen';
+    newChatBtn.hidden = view !== 'chat';
+    if (view === 'terminal') openTerminal(activeName);
+    else closeTerminal();
+    // The virtual screen is shared by all sessions; it only streams while shown.
+    setScreen(view === 'screen');
+    if (view === 'chat') window.ChatView.open(activeName);
   }
 
   viewSwitch.addEventListener('click', (e) => {

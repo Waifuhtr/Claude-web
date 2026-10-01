@@ -12,18 +12,59 @@ const fs = require('fs');
 const path = require('path');
 
 // Google Chrome is installed in the image (see Dockerfile). The container has
-// no display and no user namespaces, so the browser runs headless and without
-// Chrome's own sandbox (Playwright MCP enables it by default for the chrome
-// channel). --isolated keeps each session's browser profile in memory, so
-// parallel sessions never fight over one profile directory.
+// no user namespaces, so the browser runs without Chrome's own sandbox
+// (Playwright MCP enables it by default for the chrome channel), and headless
+// so it never depends on the virtual screen. --isolated keeps each session's
+// browser profile in memory, so parallel sessions never fight over one
+// profile directory.
+//
+// agentweb: Agent Web's own tools (share_file, virtual screen control).
+// robloxstudio: the Roblox Studio MCP, wrapped so its Studio plugin lands in
+// the plugin folder of the Studio that Vinegar runs (scripts/roblox-mcp).
+//
+// `requires` names a file the entry needs; entries whose file is missing (an
+// image without Roblox support, say) are left out.
 const MANAGED = {
   playwright: {
-    type: 'stdio',
-    command: 'playwright-mcp',
-    args: ['--browser=chrome', '--headless', '--isolated', '--no-sandbox'],
-    env: {},
+    entry: {
+      type: 'stdio',
+      command: 'playwright-mcp',
+      args: ['--browser=chrome', '--headless', '--isolated', '--no-sandbox'],
+      env: {},
+    },
+    detect: /@playwright\/mcp|playwright-mcp|mcp-server-playwright/,
+  },
+  agentweb: {
+    entry: {
+      type: 'stdio',
+      command: 'node',
+      args: ['/app/scripts/agentweb-mcp.js'],
+      env: {},
+    },
+    detect: /agentweb-mcp/,
+    requires: '/app/scripts/agentweb-mcp.js',
+  },
+  robloxstudio: {
+    entry: {
+      type: 'stdio',
+      command: '/app/scripts/roblox-mcp',
+      args: [],
+      env: {},
+    },
+    // The read-only inspector edition is a deliberate choice; leave it alone.
+    detect: /robloxstudio-mcp(?!-inspector)|\/roblox-mcp\b/,
+    requires: '/app/scripts/roblox-mcp',
   },
 };
+
+function defaultManaged() {
+  const out = {};
+  for (const [name, spec] of Object.entries(MANAGED)) {
+    if (spec.requires && !fs.existsSync(spec.requires)) continue;
+    out[name] = spec;
+  }
+  return out;
+}
 
 function log(message) {
   console.log(`[setup-mcp] ${message}`);
@@ -44,10 +85,11 @@ function same(a, b) {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
-function isPlaywrightMcp(entry) {
+// A hand-made entry for the same server (e.g. from `claude mcp add`).
+function isSameServer(entry, detect) {
   if (!entry || typeof entry !== 'object') return false;
   const parts = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])];
-  return parts.some((part) => /@playwright\/mcp|playwright-mcp|mcp-server-playwright/.test(String(part)));
+  return parts.some((part) => detect.test(String(part)));
 }
 
 function readState(file) {
@@ -67,7 +109,7 @@ function writeFileAtomic(file, text, mode) {
   fs.chmodSync(file, mode);
 }
 
-function apply(home) {
+function apply(home, managed = defaultManaged()) {
   const configFile = path.join(home, '.claude.json');
   const stateFile = path.join(home, '.cc-web', 'managed-mcp.json');
 
@@ -92,14 +134,15 @@ function apply(home) {
   let configChanged = false;
   let stateChanged = false;
 
-  for (const [name, wanted] of Object.entries(MANAGED)) {
+  for (const [name, spec] of Object.entries(managed)) {
+    const wanted = spec.entry;
     const current = config.mcpServers[name];
     const previous = state.servers[name];
 
     if (previous === undefined) {
-      // First run: take over the name. A hand-made Playwright entry (user or
-      // per-folder scope) is replaced so every session behaves the same.
-      if (current !== undefined && !isPlaywrightMcp(current)) {
+      // First run: take over the name. A hand-made entry for the same server
+      // (user or per-folder scope) is replaced so every session behaves the same.
+      if (current !== undefined && !isSameServer(current, spec.detect)) {
         log(`"${name}" adinda baska bir sunucu tanimli; dokunulmadi.`);
         continue;
       }
@@ -111,7 +154,7 @@ function apply(home) {
       const projects = config.projects && typeof config.projects === 'object' ? config.projects : {};
       for (const [folder, project] of Object.entries(projects)) {
         const servers = project && project.mcpServers;
-        if (servers && isPlaywrightMcp(servers[name])) {
+        if (servers && isSameServer(servers[name], spec.detect)) {
           delete servers[name];
           configChanged = true;
           log(`${folder} klasorune ozel eski "${name}" tanimi kaldirildi.`);

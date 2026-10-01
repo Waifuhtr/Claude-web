@@ -33,6 +33,21 @@ const SESSION_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
 const MEDIA_FILE_RE = /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/;
 const MEDIA_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 
+// Files Claude hands to the user with Agent Web's own MCP tool (scripts/agentweb-mcp.js).
+const SHARE_TOOL = 'mcp__agentweb__share_file';
+const FILE_ID_RE = /^[0-9a-f-]{36}$/;
+const MAX_SHARE_BYTES = 50 * 1024 * 1024;
+const MAX_SHARE_TOTAL = 100 * 1024 * 1024;
+const MAX_SHARED_FILES = 200;
+const MAX_SHARED_DISK = 1024 * 1024 * 1024;
+const MAX_TEXT_PREVIEW = 512 * 1024;
+const MAX_TOOL_NAMES = 500;
+// Look like regular files, but hold live process state (environment, memory).
+const SYSTEM_PATH_RE = /^\/(proc|sys|dev)(\/|$)/;
+// Harmless Agent Web tools (they only read, or hand a file to this same
+// user); asking every time would just be noise.
+const AUTO_ALLOW_TOOLS = new Set([SHARE_TOOL, 'mcp__agentweb__screenshot', 'mcp__agentweb__list_windows']);
+
 const NO_XHIGH = ['low', 'medium', 'high', 'max'];
 
 // Anthropic's current model ids. Replaced by the CLI's own supportedModels()
@@ -41,7 +56,8 @@ const NO_XHIGH = ['low', 'medium', 'high', 'max'];
 const FALLBACK_MODELS = [
   { value: '', displayName: 'Varsayılan', description: "Claude Code'un bu hesap için seçtiği model", supportedEffortLevels: EFFORT_LEVELS, group: 'main' },
   { value: 'claude-opus-5-5', displayName: 'Opus 5.5', description: 'Zorlu işler için en yetenekli', supportedEffortLevels: EFFORT_LEVELS, group: 'main' },
-  { value: 'claude-sonnet-5', displayName: 'Sonnet 5', description: 'Günlük işler için en verimli', supportedEffortLevels: EFFORT_LEVELS, group: 'main' },
+  { value: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5', description: 'En yeni Sonnet: hızlı ve güçlü, günlük işler için', supportedEffortLevels: EFFORT_LEVELS, group: 'main', pinned: true },
+  { value: 'claude-sonnet-5', displayName: 'Sonnet 5', description: 'Günlük işler için verimli', supportedEffortLevels: EFFORT_LEVELS, group: 'main' },
   { value: 'claude-fable-5-1', displayName: 'Fable 5.1', description: 'En zor problemler için (kullanım kredisi gerektirebilir)', supportedEffortLevels: EFFORT_LEVELS, group: 'main' },
   { value: 'claude-haiku-4-5', displayName: 'Haiku 4.5', description: 'Hızlı, kısa cevaplar için', supportedEffortLevels: [], supportsAdaptiveThinking: false, group: 'main' },
   { value: 'claude-opus-5', displayName: 'Opus 5', description: '', supportedEffortLevels: EFFORT_LEVELS, group: 'other' },
@@ -51,6 +67,23 @@ const FALLBACK_MODELS = [
   { value: 'claude-opus-4-6', displayName: 'Opus 4.6', description: '', supportedEffortLevels: NO_XHIGH, group: 'other' },
   { value: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: '', supportedEffortLevels: NO_XHIGH, group: 'other' },
 ];
+
+// The CLI only lists its own picker entries (often aliases such as "opus");
+// model ids it does not list still work by name. Pinned ones (new releases)
+// join the main list, the older ones go under "Diğer modeller".
+function mergeFallbackModels(models) {
+  const listed = new Set(models.map((m) => m.value));
+  const pinned = [];
+  const older = [];
+  for (const m of FALLBACK_MODELS) {
+    if (!m.value || listed.has(m.value)) continue;
+    if (m.pinned) pinned.push({ ...m, group: 'main' });
+    else if (m.group === 'other') older.push({ ...m });
+  }
+  const main = models.filter((m) => m.group !== 'other');
+  const rest = models.filter((m) => m.group === 'other');
+  return [...main, ...pinned, ...rest, ...older];
+}
 
 const ASSISTANT_ERRORS = {
   authentication_failed:
@@ -120,6 +153,32 @@ function sniffImage(buf) {
   if (six === 'GIF87a' || six === 'GIF89a') return 'image/gif';
   if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
   return null;
+}
+
+// Small UTF-8 files without NUL bytes can be previewed as text in the chat.
+function looksLikeText(buf) {
+  if (!buf || !buf.length || buf.includes(0)) return false;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Appended to Claude Code's own system prompt for chat sessions.
+function webUiPrompt(displayAvailable) {
+  const lines = [
+    'You are running inside Agent Web, a self-hosted web app (chat, terminal and a virtual screen) on a Linux container. The user reads your replies in the chat, often on a phone.',
+    '- To give the user a file (text, code, logs, CSV, documents, archives, images...), save it to disk and call the mcp__agentweb__share_file tool with its path: it shows up in the chat as a download card. Do this whenever the user asks you to send, share or give them a file, and prefer it over pasting very long content.',
+  ];
+  if (displayAvailable) {
+    lines.push(
+      '- A virtual X display is available (DISPLAY is already set). The user watches and controls it in the "Ekran" tab. GUI programs you start appear there; drive them with the mcp__agentweb__ screen tools (screenshot, click, type_text, press_keys, scroll, drag, list_windows, focus_window, launch_app).',
+      '- Roblox Studio runs here through Vinegar (Wine): start it with launch_app (app "roblox_studio") or `roblox-studio` in Bash. The first start downloads Wine and Studio and takes several minutes. If Studio asks for a Roblox login, ask the user to sign in from the Ekran tab; never ask for their password in the chat. Once Studio is open, its MCP plugin connects and the mcp__robloxstudio__ tools work.'
+    );
+  }
+  return lines.join('\n');
 }
 
 function safeFileName(raw) {
@@ -301,6 +360,8 @@ class ChatSession {
     this.lastInit = null;
     this.idleTimer = null;
     this.mediaDir = path.join(this.dir, 'media');
+    this.filesDir = path.join(this.dir, 'files');
+    this.toolNames = new Map();
     this.uploads = new Map();
     this.turn = null;
     this.usageTimer = null;
@@ -514,7 +575,7 @@ class ChatSession {
       env: this.manager.childEnv,
       includePartialMessages: true,
       settingSources: ['user', 'project', 'local'],
-      systemPrompt: { type: 'preset', preset: 'claude_code', snapshot: true },
+      systemPrompt: { type: 'preset', preset: 'claude_code', snapshot: true, append: this.manager.systemPromptAppend },
       permissionMode: settings.permissionMode,
       canUseTool: (toolName, toolInput, opts) => this.requestPermission(toolName, toolInput, opts),
       stderr: (data) => this.captureStderr(run, data),
@@ -531,9 +592,8 @@ class ChatSession {
     run.query = query({ prompt: run.input, options });
     this.run = run;
     this.consume(run);
-    if (!this.manager.models) {
-      run.query.supportedModels().then((models) => this.manager.setModels(models)).catch(() => {});
-    }
+    // Refreshed on every start: a newer Claude Code may list new models.
+    run.query.supportedModels().then((models) => this.manager.setModels(models)).catch(() => {});
   }
 
   captureStderr(run, data) {
@@ -741,6 +801,7 @@ class ChatSession {
       } else if (block.type === 'tool_use' || block.type === 'server_tool_use' || block.type === 'mcp_tool_use') {
         this.addEvent({ t: 'tool', id: block.id, name: block.name, input: capInput(block.input), parent });
         this.seenToolIds.add(block.id);
+        this.rememberToolName(block.id, block.name);
         this.releaseDeferredPerm(block.id);
       } else if (typeof block.type === 'string' && block.type.endsWith('_tool_result') && block.tool_use_id) {
         const content = typeof block.content === 'object' ? JSON.stringify(block.content) : block.content;
@@ -764,8 +825,116 @@ class ChatSession {
         };
         const images = this.extractImages(block.content);
         if (images.length) event.images = images;
+        if (this.toolNames.get(block.tool_use_id) === SHARE_TOOL && !block.is_error) {
+          const shared = this.collectSharedFiles(block.content);
+          event.content = shared.text;
+          if (shared.files.length) event.files = shared.files;
+          if (shared.errors.length) event.content = [event.content, ...shared.errors].filter(Boolean).join('\n');
+        }
         this.addEvent(event);
       }
+    }
+  }
+
+  rememberToolName(id, name) {
+    if (typeof id !== 'string' || typeof name !== 'string') return;
+    this.toolNames.set(id, name);
+    if (this.toolNames.size > MAX_TOOL_NAMES) this.toolNames.delete(this.toolNames.keys().next().value);
+  }
+
+  // ---- files Claude shares with the user (share_file) ----
+
+  // The MCP tool validated the paths and lists them in a JSON text block;
+  // copies are kept with the chat, so later edits or deletes in the working
+  // directory do not change what was shared.
+  collectSharedFiles(content) {
+    const blocks = Array.isArray(content) ? content : typeof content === 'string' ? [{ type: 'text', text: content }] : [];
+    const notes = [];
+    let list = null;
+    for (const block of blocks) {
+      if (!block || block.type !== 'text' || typeof block.text !== 'string') continue;
+      const raw = block.text.trim();
+      if (raw.startsWith('{"agentwebShare"')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed.agentwebShare)) list = parsed.agentwebShare;
+        } catch {
+          // bozuk liste; asagida hata olarak raporlanir
+        }
+      } else if (raw) {
+        notes.push(raw);
+      }
+    }
+    const result = { text: truncate(notes.join('\n'), MAX_TOOL_TEXT), files: [], errors: [] };
+    if (!list) {
+      result.errors.push('Paylaşılan dosya listesi okunamadı.');
+      return result;
+    }
+    let total = 0;
+    for (const item of list.slice(0, MAX_ATTACHMENTS)) {
+      const src = item && typeof item.path === 'string' ? item.path : '';
+      const label = safeFileName(item && item.name ? item.name : path.basename(src));
+      try {
+        if (!path.isAbsolute(src) || src.includes('\0')) throw new Error('geçersiz yol');
+        const stat = fs.statSync(src);
+        if (!stat.isFile()) throw new Error('normal bir dosya değil');
+        if (SYSTEM_PATH_RE.test(fs.realpathSync(src))) throw new Error('sistem dosyası');
+        if (stat.size > MAX_SHARE_BYTES) throw new Error('50 MB sınırını aşıyor');
+        total += stat.size;
+        if (total > MAX_SHARE_TOTAL) throw new Error('toplam 100 MB sınırı aşıldı');
+        result.files.push(this.storeSharedFile(src, label, stat.size));
+      } catch (err) {
+        result.errors.push(`${label} paylaşılamadı: ${errMessage(err)}`);
+      }
+    }
+    this.pruneSharedFiles();
+    return result;
+  }
+
+  storeSharedFile(src, name, size) {
+    const id = crypto.randomUUID();
+    const dir = path.join(this.filesDir, id);
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, 'content');
+    try {
+      fs.copyFileSync(src, dest);
+      const head = Buffer.alloc(16);
+      const fd = fs.openSync(dest, 'r');
+      try {
+        fs.readSync(fd, head, 0, 16, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const imageType = sniffImage(head);
+      let mediaId = null;
+      if (imageType && size <= MAX_MEDIA_BYTES) mediaId = this.saveMedia(fs.readFileSync(dest), imageType);
+      const text = !imageType && size <= MAX_TEXT_PREVIEW && looksLikeText(fs.readFileSync(dest));
+      const meta = { id, name, size, image: !!imageType, mediaId, text, createdAt: Date.now() };
+      fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
+      return { id, name, size, image: meta.image, mediaId, text };
+    } catch (err) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      throw err;
+    }
+  }
+
+  pruneSharedFiles() {
+    let entries;
+    try {
+      entries = fs.readdirSync(this.filesDir).filter((f) => FILE_ID_RE.test(f));
+    } catch {
+      return;
+    }
+    const metas = entries
+      .map((id) => readJson(path.join(this.filesDir, id, 'meta.json'), null) || { id, size: 0, createdAt: 0 })
+      .sort((a, b) => num(a.createdAt) - num(b.createdAt));
+    let bytes = metas.reduce((sum, m) => sum + num(m.size), 0);
+    let count = metas.length;
+    for (const meta of metas) {
+      if (count <= MAX_SHARED_FILES && bytes <= MAX_SHARED_DISK) break;
+      fs.rmSync(path.join(this.filesDir, meta.id), { recursive: true, force: true });
+      count -= 1;
+      bytes -= num(meta.size);
     }
   }
 
@@ -1076,6 +1245,9 @@ class ChatSession {
 
   requestPermission(toolName, toolInput, opts) {
     const options = opts || {};
+    if (AUTO_ALLOW_TOOLS.has(toolName)) {
+      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput || {} });
+    }
     return new Promise((resolve) => {
       const id = crypto.randomUUID();
       const kind = toolName === 'AskUserQuestion' ? 'question' : toolName === 'ExitPlanMode' ? 'plan' : 'tool';
@@ -1292,12 +1464,14 @@ class ChatSession {
     this.stopRequested = false;
     this.unanswered = [];
     this.seenToolIds.clear();
+    this.toolNames.clear();
     this.uploads.clear();
     this.state.sessionId = null;
     this.state.usageBase = null;
     this.saveState();
     this.events = [];
     fs.rmSync(this.mediaDir, { recursive: true, force: true });
+    fs.rmSync(this.filesDir, { recursive: true, force: true });
     try {
       fs.unlinkSync(this.eventsFile);
     } catch {
@@ -1330,10 +1504,11 @@ class ChatSession {
 }
 
 class ChatManager {
-  constructor({ home, workspaceRoot, childEnv, ensureWorkspace }) {
+  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, displayAvailable }) {
     this.workspaceRoot = workspaceRoot;
     this.childEnv = childEnv;
     this.ensureWorkspace = ensureWorkspace;
+    this.systemPromptAppend = webUiPrompt(!!displayAvailable);
     this.root = path.join(home, '.cc-web');
     this.chatsRoot = path.join(this.root, 'chats');
     this.modelsFile = path.join(this.root, 'models.json');
@@ -1396,6 +1571,16 @@ class ChatManager {
     return fs.existsSync(abs) ? abs : null;
   }
 
+  // A file shared with share_file: its stored copy and metadata, or null.
+  sharedFile(name, id) {
+    if (!SESSION_NAME_RE.test(String(name)) || !FILE_ID_RE.test(String(id))) return null;
+    const dir = path.join(this.chatsRoot, name, 'files', id);
+    const meta = readJson(path.join(dir, 'meta.json'), null);
+    const abs = path.join(dir, 'content');
+    if (!meta || !fs.existsSync(abs)) return null;
+    return { abs, name: safeFileName(meta.name), size: num(meta.size), text: meta.text === true };
+  }
+
   isRunning(name) {
     const session = this.sessions.get(name);
     return !!(session && session.running);
@@ -1409,7 +1594,7 @@ class ChatManager {
   }
 
   getModels() {
-    return this.models || FALLBACK_MODELS;
+    return this.models ? mergeFallbackModels(this.models) : FALLBACK_MODELS;
   }
 
   setModels(list) {
@@ -1433,11 +1618,7 @@ class ChatManager {
     if (!models.some((m) => m.value === '')) {
       models.unshift({ ...FALLBACK_MODELS[0] });
     }
-    // The CLI only lists its picker entries; older model ids still work by name.
-    const listed = new Set(models.map((m) => m.value));
-    for (const m of FALLBACK_MODELS) {
-      if (m.group === 'other' && !listed.has(m.value)) models.push({ ...m });
-    }
+    if (this.models && JSON.stringify(this.models) === JSON.stringify(models)) return;
     this.models = models;
     writeJson(this.modelsFile, models);
     for (const session of this.sessions.values()) session.broadcastStatus();

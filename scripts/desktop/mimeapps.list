@@ -1,0 +1,6 @@
+[Default Applications]
+text/html=agentweb-browser.desktop
+x-scheme-handler/http=agentweb-browser.desktop
+x-scheme-handler/https=agentweb-browser.desktop
+x-scheme-handler/roblox-studio=org.vinegarhq.Vinegar.desktop
+x-scheme-handler/roblox-studio-auth=org.vinegarhq.Vinegar.desktop
