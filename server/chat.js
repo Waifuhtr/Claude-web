@@ -21,6 +21,13 @@ const STOP_KILL_MS = 8000;
 const MCP_STATUS_TIMEOUT_MS = 10000;
 const USAGE_FLUSH_MS = 400;
 
+// Signing in to remote MCP servers (OAuth) from the chat.
+const MCP_AUTH_TIMEOUT_MS = 45000;
+const MCP_CALLBACK_TIMEOUT_MS = 60000;
+const OAUTH_FLOW_TTL_MS = 15 * 60 * 1000;
+const MAX_OAUTH_FLOWS = 50;
+const MAX_CALLBACK_URL = 8192;
+
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
 const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
@@ -169,13 +176,12 @@ function looksLikeText(buf) {
 // Appended to Claude Code's own system prompt for chat sessions.
 function webUiPrompt(displayAvailable) {
   const lines = [
-    'You are running inside Agent Web, a self-hosted web app (chat, terminal and a virtual screen) on a Linux container. The user reads your replies in the chat, often on a phone.',
+    `You are running inside Agent Web, a self-hosted web app (chat, terminal${displayAvailable ? ' and a virtual screen' : ''}) on a Linux container. The user reads your replies in the chat, often on a phone.`,
     '- To give the user a file (text, code, logs, CSV, documents, archives, images...), save it to disk and call the mcp__agentweb__share_file tool with its path: it shows up in the chat as a download card. Do this whenever the user asks you to send, share or give them a file, and prefer it over pasting very long content.',
   ];
   if (displayAvailable) {
     lines.push(
-      '- A virtual X display is available (DISPLAY is already set). The user watches and controls it in the "Ekran" tab. GUI programs you start appear there; drive them with the mcp__agentweb__ screen tools (screenshot, click, type_text, press_keys, scroll, drag, list_windows, focus_window, launch_app).',
-      '- Roblox Studio runs here through Vinegar (Wine): start it with launch_app (app "roblox_studio") or `roblox-studio` in Bash. The first start downloads Wine and Studio and takes several minutes. If Studio asks for a Roblox login, ask the user to sign in from the Ekran tab; never ask for their password in the chat. Once Studio is open, its MCP plugin connects and the mcp__robloxstudio__ tools work.'
+      '- A virtual X display is available (DISPLAY is already set). The user watches and controls it in the "Ekran" tab. GUI programs you start appear there; drive them with the mcp__agentweb__ screen tools (screenshot, click, type_text, press_keys, scroll, drag, list_windows, focus_window, launch_app). Screenshots are large; take one only when you need to see the screen.'
     );
   }
   return lines.join('\n');
@@ -259,6 +265,15 @@ function usageDelta(current, base) {
   return delta;
 }
 
+function serverHost(config) {
+  if (!config || typeof config.url !== 'string') return '';
+  try {
+    return new URL(config.url).hostname;
+  } catch {
+    return '';
+  }
+}
+
 function summarizeMcp(server) {
   const s = server || {};
   return {
@@ -267,7 +282,48 @@ function summarizeMcp(server) {
     error: s.error ? truncate(String(s.error), 600) : '',
     scope: String(s.scope || s.source || ''),
     tools: Array.isArray(s.tools) ? s.tools.length : null,
+    host: serverHost(s.config),
   };
+}
+
+function validServerName(name) {
+  return typeof name === 'string' && name.length > 0 && name.length <= 200 && !/[\u0000-\u001f\u007f]/.test(name);
+}
+
+// "https://host[:port]" for a browser origin, or '' for anything else.
+function normalizeOrigin(value) {
+  if (typeof value !== 'string' || !value) return '';
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : '';
+  } catch {
+    return '';
+  }
+}
+
+// The sign-in page comes from the MCP server's metadata: only ever hand the
+// browser a plain web address (never javascript: or data: URLs).
+function safeAuthUrl(value) {
+  if (typeof value !== 'string' || value.length > MAX_CALLBACK_URL) return '';
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function hasAuthCode(value) {
+  try {
+    const url = new URL(value);
+    return url.searchParams.has('code') || url.searchParams.has('error');
+  } catch {
+    return false;
+  }
+}
+
+function sendTo(ws, msg) {
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 }
 
 function withTimeout(promise, ms, message) {
@@ -363,6 +419,8 @@ class ChatSession {
     this.filesDir = path.join(this.dir, 'files');
     this.toolNames = new Map();
     this.uploads = new Map();
+    // MCP server name -> the Claude process its sign-in was started in.
+    this.authRuns = new Map();
     this.turn = null;
     this.usageTimer = null;
     this.seq = 0;
@@ -464,7 +522,10 @@ class ChatSession {
     this.broadcast({ type: 'status', status: this.status() });
   }
 
-  attach(ws) {
+  // origin: the page's origin as the browser reported it; OAuth sign-ins
+  // redirect back to it.
+  attach(ws, origin) {
+    ws.agentwebOrigin = normalizeOrigin(origin);
     this.clients.add(ws);
     ws.send(JSON.stringify({ type: 'hello', history: this.events, status: this.status() }));
     for (const [key, draft] of this.drafts) {
@@ -501,10 +562,16 @@ class ChatSession {
         this.newChat();
         break;
       case 'mcp_status':
-        this.sendMcpStatus(ws).catch(() => {});
+        this.sendMcpStatus(ws, null, msg.start === true).catch(() => {});
         break;
       case 'mcp_reconnect':
         this.reconnectMcp(ws, msg.name).catch(() => {});
+        break;
+      case 'mcp_auth':
+        this.authenticateMcp(ws, msg.name).catch(() => {});
+        break;
+      case 'mcp_auth_url':
+        this.submitMcpCallback(msg.name, msg.url).catch(() => {});
         break;
       case 'restart':
         this.restart(ws);
@@ -1406,10 +1473,19 @@ class ChatSession {
   }
 
   // Live MCP status needs a running Claude process; otherwise the list from the
-  // last start is all there is.
-  async sendMcpStatus(ws, extra) {
+  // last start is all there is (start: launch Claude to get the live list).
+  async mcpStatusReply(start) {
+    let startError = '';
+    if (start && !this.run) {
+      try {
+        await this.ensureLiveRun();
+      } catch (err) {
+        startError = `Claude başlatılamadı: ${errMessage(err)}`;
+      }
+    }
     const run = this.run;
     const reply = { type: 'mcp', live: false, servers: this.lastInit ? this.lastInit.mcp : [] };
+    if (startError) reply.error = startError;
     if (run && !run.closing) {
       try {
         const list = await withTimeout(run.query.mcpServerStatus(), MCP_STATUS_TIMEOUT_MS, 'MCP durumu alınamadı (zaman aşımı).');
@@ -1419,12 +1495,21 @@ class ChatSession {
         reply.error = errMessage(err);
       }
     }
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ ...reply, ...(extra || {}) }));
+    return reply;
+  }
+
+  async sendMcpStatus(ws, extra, start) {
+    const reply = await this.mcpStatusReply(start);
+    sendTo(ws, { ...reply, ...(extra || {}) });
+  }
+
+  async broadcastMcpStatus() {
+    this.broadcast(await this.mcpStatusReply(false));
   }
 
   async reconnectMcp(ws, name) {
     const run = this.run;
-    if (!run || run.closing || typeof name !== 'string' || !name || name.length > 200) {
+    if (!run || run.closing || !validServerName(name)) {
       await this.sendMcpStatus(ws);
       return;
     }
@@ -1435,6 +1520,116 @@ class ChatSession {
       error = errMessage(err);
     }
     await this.sendMcpStatus(ws, error ? { error } : null);
+  }
+
+  // A Claude process for control requests (MCP status, sign-in) even when no
+  // message is being answered; an idle one closes itself like after a turn.
+  async ensureLiveRun() {
+    await this.ensureQuery();
+    const run = this.run;
+    if (!run || run.closing) throw new Error('Claude süreci hazır değil.');
+    if (!this.running) this.scheduleIdle();
+    return run;
+  }
+
+  // Remote MCP servers that need a login (OAuth). Claude Code's own flow
+  // redirects to http://localhost:<port>/callback, which a phone cannot
+  // reach; here the provider sends the browser back to this app's public
+  // /oauth/callback instead, and Claude Code finishes the sign-in. Servers
+  // that only accept a localhost address (or a fixed client id) still work:
+  // the user pastes the address the browser could not open.
+  async authenticateMcp(ws, name) {
+    if (!validServerName(name)) return;
+    const reply = (extra) => sendTo(ws, { type: 'mcp_auth', name, ...extra });
+    let run;
+    try {
+      run = await this.ensureLiveRun();
+    } catch (err) {
+      reply({ error: `Claude başlatılamadı: ${errMessage(err)}` });
+      return;
+    }
+    const redirectUri = this.manager.oauthRedirectUri(ws.agentwebOrigin);
+    let res;
+    try {
+      res = await withTimeout(
+        run.query.mcpAuthenticate(name, redirectUri || undefined),
+        MCP_AUTH_TIMEOUT_MS,
+        'Giriş başlatılamadı (zaman aşımı).'
+      );
+    } catch (err) {
+      reply({ error: errMessage(err) });
+      return;
+    }
+    const r = res || {};
+    if (!r.requiresUserAction) {
+      // Stored credentials still work; a reconnect picks them up.
+      await this.reconnectQuietly(run, name);
+      reply({ done: true });
+      await this.broadcastMcpStatus();
+      return;
+    }
+    const authUrl = safeAuthUrl(r.authUrl);
+    if (!authUrl) {
+      reply({ error: 'Sunucu geçerli bir giriş adresi vermedi.' });
+      return;
+    }
+    let mode = 'paste';
+    if (r.callbackExpected === false) {
+      mode = 'external';
+    } else if (r.redirectScheme === 'custom' && redirectUri && typeof r.state === 'string' && r.state) {
+      mode = 'redirect';
+      this.manager.addOAuthFlow(r.state, { session: this, run, server: name, redirectUri });
+    }
+    this.authRuns.set(name, run);
+    reply({ authUrl, mode });
+  }
+
+  // The address the browser landed on after signing in, pasted by the user.
+  async submitMcpCallback(name, rawUrl) {
+    if (!validServerName(name)) return;
+    const url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+    if (!url || url.length > MAX_CALLBACK_URL || !hasAuthCode(url)) {
+      this.broadcast({
+        type: 'mcp_auth_done',
+        name,
+        ok: false,
+        error: 'Bu adreste giriş kodu yok. Girişten sonra açılan sayfanın adresinin tamamını yapıştır.',
+      });
+      return;
+    }
+    await this.finishOAuth(name, url, this.authRuns.get(name));
+  }
+
+  // Shared by the paste box and the /oauth/callback route.
+  async finishOAuth(name, url, run) {
+    let result;
+    if (!run || run !== this.run || run.closing) {
+      result = { ok: false, error: 'Bu giriş denemesi artık geçerli değil (Claude yeniden başladı). "Giriş yap"a yeniden dokun.' };
+    } else {
+      try {
+        await withTimeout(run.query.mcpSubmitOAuthCallbackUrl(name, url), MCP_CALLBACK_TIMEOUT_MS, 'Giriş tamamlanamadı (zaman aşımı).');
+        result = { ok: true };
+      } catch (err) {
+        result = { ok: false, error: errMessage(err) };
+      }
+    }
+    if (result.ok) {
+      if (this.authRuns.get(name) === run) this.authRuns.delete(name);
+      // Claude Code leaves reconnecting to the client when the callback
+      // arrives this way.
+      await this.reconnectQuietly(run, name);
+    }
+    this.broadcast({ type: 'mcp_auth_done', name, ...result });
+    if (result.ok) await this.broadcastMcpStatus();
+    return result;
+  }
+
+  async reconnectQuietly(run, name) {
+    try {
+      await withTimeout(run.query.reconnectMcpServer(name), MCP_STATUS_TIMEOUT_MS * 3, 'Yeniden bağlanma zaman aşımına uğradı.');
+    } catch {
+      // the status list shows what went wrong
+    }
   }
 
   // MCP servers and settings are read when the Claude process starts. Closing
@@ -1449,6 +1644,7 @@ class ChatSession {
     }
     if (this.run) this.closeRun(this.run, true);
     this.clearIdle();
+    this.authRuns.clear();
     this.lastInit = null;
     this.addEvent({ t: 'notice', text: 'Claude yeniden başlatıldı; MCP ve ayar değişiklikleri bir sonraki mesajla yüklenecek.' });
     this.broadcastStatus();
@@ -1466,6 +1662,7 @@ class ChatSession {
     this.seenToolIds.clear();
     this.toolNames.clear();
     this.uploads.clear();
+    this.authRuns.clear();
     this.state.sessionId = null;
     this.state.usageBase = null;
     this.saveState();
@@ -1504,11 +1701,17 @@ class ChatSession {
 }
 
 class ChatManager {
-  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, displayAvailable }) {
+  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, displayAvailable, publicUrl, spaceHost }) {
     this.workspaceRoot = workspaceRoot;
     this.childEnv = childEnv;
     this.ensureWorkspace = ensureWorkspace;
     this.systemPromptAppend = webUiPrompt(!!displayAvailable);
+    // Where OAuth providers send the browser back to: an explicit public URL,
+    // else the origin the page was opened from, else the Space's own host.
+    this.publicUrl = normalizeOrigin(publicUrl);
+    this.spaceHost = typeof spaceHost === 'string' && /^[A-Za-z0-9.-]+$/.test(spaceHost) ? spaceHost : '';
+    // OAuth state -> sign-in waiting for its redirect to /oauth/callback.
+    this.oauthFlows = new Map();
     this.root = path.join(home, '.cc-web');
     this.chatsRoot = path.join(this.root, 'chats');
     this.modelsFile = path.join(this.root, 'models.json');
@@ -1551,8 +1754,46 @@ class ChatManager {
     return session;
   }
 
-  attach(ws, name) {
-    this.get(name).attach(ws);
+  attach(ws, name, origin) {
+    this.get(name).attach(ws, origin);
+  }
+
+  oauthRedirectUri(origin) {
+    const base = this.publicUrl || normalizeOrigin(origin) || (this.spaceHost ? `https://${this.spaceHost}` : '');
+    return base ? `${base}/oauth/callback` : null;
+  }
+
+  addOAuthFlow(state, flow) {
+    this.pruneOAuthFlows();
+    while (this.oauthFlows.size >= MAX_OAUTH_FLOWS) this.oauthFlows.delete(this.oauthFlows.keys().next().value);
+    this.oauthFlows.set(state, { ...flow, createdAt: Date.now() });
+  }
+
+  pruneOAuthFlows() {
+    const cutoff = Date.now() - OAUTH_FLOW_TTL_MS;
+    for (const [state, flow] of this.oauthFlows) {
+      if (flow.createdAt < cutoff) this.oauthFlows.delete(state);
+    }
+  }
+
+  // GET /oauth/callback. The request is not logged in (the auth cookie is
+  // SameSite=Strict, so a redirect from another site does not carry it); the
+  // one-time state of a sign-in started from the app is what authorizes it.
+  // search: the raw query string ("?code=...&state=..."), passed on as is.
+  async completeOAuth(query, search) {
+    this.pruneOAuthFlows();
+    const state = query && typeof query.state === 'string' ? query.state : '';
+    const flow = state ? this.oauthFlows.get(state) : null;
+    if (!flow || typeof search !== 'string' || search.length > MAX_CALLBACK_URL) {
+      return {
+        ok: false,
+        unknown: true,
+        error: 'Bu giriş bağlantısı tanınmadı ya da süresi doldu.',
+      };
+    }
+    this.oauthFlows.delete(state);
+    const result = await flow.session.finishOAuth(flow.server, `${flow.redirectUri}${search}`, flow.run);
+    return { ...result, server: flow.server };
   }
 
   upload(name, req, fileName, declaredType) {

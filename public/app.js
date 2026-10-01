@@ -33,10 +33,14 @@
   const SESSION_KEY = 'agentweb.session';
 
   const VIEWS = ['chat', 'terminal', 'screen'];
+  const screenTab = viewSwitch.querySelector('button[data-view="screen"]');
 
   let activeName = null;
   let activeView = VIEWS.includes(readPref(VIEW_KEY)) ? readPref(VIEW_KEY) : 'chat';
   let sessions = [];
+  // The virtual screen is off unless the server enables it (AGENTWEB_DISPLAY=1);
+  // its tab only shows when it is available.
+  let screenAvailable = false;
   // The Ekran tab lives in a module script (screen.js) that loads after this
   // file; it reads this when it is ready.
   let screenWanted = false;
@@ -213,9 +217,20 @@
     if (window.ScreenView) window.ScreenView.setVisible(screenWanted);
   });
 
+  async function loadDisplay() {
+    try {
+      const res = await api('/api/display');
+      const info = await res.json();
+      screenAvailable = !!(info && info.available);
+    } catch {
+      screenAvailable = false;
+    }
+    screenTab.hidden = !screenAvailable;
+  }
+
   function showView(view, force) {
     if (!activeName) return;
-    if (!VIEWS.includes(view)) view = 'chat';
+    if (!VIEWS.includes(view) || (view === 'screen' && !screenAvailable)) view = 'chat';
     if (view === activeView && !force) return;
     activeView = view;
     writePref(VIEW_KEY, view);
@@ -374,8 +389,8 @@
 
   // ---- startup: reopen the last session, or the only one ----
 
-  loadSessions()
-    .then((list) => {
+  Promise.all([loadSessions(), loadDisplay()])
+    .then(([list]) => {
       const saved = readPref(SESSION_KEY);
       const target = list.find((s) => s.name === saved) || (list.length === 1 ? list[0] : null);
       if (target) openSession(target.name);

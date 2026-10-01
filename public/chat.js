@@ -72,8 +72,10 @@
     mcp__agentweb__focus_window: 'Ekran · pencere',
     mcp__agentweb__launch_app: 'Uygulama başlatma',
   };
-  const APP_LABEL = { roblox_studio: 'Roblox Studio', vinegar_settings: 'Vinegar ayarları', browser: 'Tarayıcı' };
+  const APP_LABEL = { browser: 'Tarayıcı' };
   const MCP_STATUS = { connected: 'Bağlı', failed: 'Hata', 'needs-auth': 'Giriş gerekli', pending: 'Bağlanıyor', disabled: 'Kapalı' };
+  const GITHUB_HOST_RE = /(^|\.)githubcopilot\.com$/i;
+  const AUTH_ERROR_RE = /401|403|unauthori[sz]ed|forbidden|auth|registration|token/i;
   const MCP_SCOPE = {
     user: 'tüm oturumlar',
     project: "bu klasörün .mcp.json'u",
@@ -112,6 +114,9 @@
   let sheetView = 'main';
   let confirmBypass = false;
   let mcpState = null;
+  // MCP server name -> sign-in in progress ({ phase, authUrl, mode, error, ... }).
+  const mcpAuth = new Map();
+  let mcpRenderPending = false;
   let attachments = [];
   let attachSeq = 0;
   let clockOffset = 0;
@@ -1294,13 +1299,149 @@
     return `${ok}/${list.length} bağlı${bad ? ` · ${bad} hata` : ''}`;
   }
 
-  function refreshMcp() {
+  function refreshMcp(start) {
     sheetView = 'mcp';
-    mcpState = send({ type: 'mcp_status' }) ? null : { live: false, servers: [], error: 'Bağlantı yok, biraz sonra tekrar dene.' };
+    const msg = start === true ? { type: 'mcp_status', start: true } : { type: 'mcp_status' };
+    mcpState = send(msg) ? null : { live: false, servers: [], error: 'Bağlantı yok, biraz sonra tekrar dene.' };
     renderSheet();
   }
 
+  // Re-rendering replaces the sheet; never while the user is typing in it
+  // (on phones that would also close the keyboard).
+  function refreshMcpSheet() {
+    if (els.sheet.hidden || sheetView !== 'mcp') return;
+    const active = document.activeElement;
+    if (active && active.tagName === 'INPUT' && els.sheet.contains(active)) {
+      mcpRenderPending = true;
+      return;
+    }
+    renderSheet();
+  }
+
+  function isGitHubServer(server) {
+    return /^github$/i.test(server.name) || GITHUB_HOST_RE.test(server.host || '');
+  }
+
+  // GitHub's MCP server has no OAuth client registration for other apps, so
+  // its "sign in" cannot work; a token can.
+  function githubHint() {
+    const hint = el('span', 'opt-desc mcp-hint');
+    hint.append(
+      'GitHub bu girişi desteklemiyor; token ile bağlanılır. Terminal sekmesinde ',
+      el('code', '', 'gh auth login'),
+      " çalıştır (telefonda tek seferlik kodla giriş) ya da Space ayarlarına GITHUB_TOKEN secret'ı ekle. Sonra Yeniden bağlan'a dokun."
+    );
+    return hint;
+  }
+
+  function startMcpAuth(name) {
+    if (!send({ type: 'mcp_auth', name })) return;
+    mcpAuth.set(name, { phase: 'starting' });
+    renderSheet();
+  }
+
+  function safeHref(url) {
+    try {
+      const u = new URL(url);
+      return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function mcpPasteForm(name, auth) {
+    const form = el('form', 'mcp-paste');
+    const input = el('input');
+    input.type = 'text';
+    input.inputMode = 'url';
+    input.placeholder = 'http://localhost:…/callback?code=…';
+    input.autocomplete = 'off';
+    input.setAttribute('autocapitalize', 'off');
+    input.setAttribute('autocorrect', 'off');
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'Girişten sonra açılan sayfanın adresi');
+    input.value = auth.draft || '';
+    input.addEventListener('input', () => {
+      auth.draft = input.value;
+    });
+    input.addEventListener('focus', () => {
+      // A restored draft: continue typing at its end.
+      if (input.value && input.selectionStart === 0 && input.selectionEnd === 0) {
+        try {
+          input.setSelectionRange(input.value.length, input.value.length);
+        } catch {
+          // bazi tarayicilar desteklemez
+        }
+      }
+    });
+    input.addEventListener('blur', () => {
+      // A status update may have arrived while typing. Applied a moment
+      // later: rebuilding now would swap out the button being tapped
+      // (the tap blurs the field before its click arrives).
+      setTimeout(() => {
+        if (mcpRenderPending) refreshMcpSheet();
+      }, 400);
+    });
+    const submitBtn = el('button', 'mcp-retry primary', 'Gönder');
+    submitBtn.type = 'submit';
+    form.append(input, submitBtn);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const url = input.value.trim();
+      if (!url) return;
+      input.blur();
+      if (!send({ type: 'mcp_auth_url', name, url })) return;
+      mcpAuth.set(name, { ...auth, phase: 'sending', error: '' });
+      renderSheet();
+    });
+    return form;
+  }
+
+  function mcpAuthPanel(server, auth) {
+    const box = el('div', 'mcp-auth');
+    if (auth.phase === 'starting') {
+      box.appendChild(el('span', 'opt-desc', 'Giriş bağlantısı hazırlanıyor…'));
+    } else if (auth.phase === 'sending') {
+      box.appendChild(el('span', 'opt-desc', 'Giriş tamamlanıyor…'));
+    } else if (auth.phase === 'done') {
+      box.appendChild(el('span', 'opt-desc mcp-ok', server.status === 'connected' ? 'Giriş tamamlandı.' : 'Giriş tamamlandı; sunucu yeniden bağlanıyor…'));
+    } else if (auth.phase === 'error') {
+      box.appendChild(el('span', 'mcp-error', auth.error));
+      if (isGitHubServer(server)) box.appendChild(githubHint());
+    } else if (auth.phase === 'open') {
+      const href = safeHref(auth.authUrl);
+      if (href) {
+        const link = el('a', 'mcp-auth-link', 'Giriş sayfasını aç ↗');
+        link.href = href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        box.appendChild(link);
+      }
+      if (auth.mode === 'external') {
+        box.appendChild(el('span', 'opt-desc', "Bağlantıyı açılan sayfada tamamla, sonra buraya dönüp Yeniden bağlan'a dokun."));
+      } else if (auth.mode === 'redirect') {
+        box.appendChild(el('span', 'opt-desc', 'Giriş yeni sekmede açılır. Bitince bu sekmeye dön; durum kendiliğinden güncellenir.'));
+        if (!auth.showPaste) {
+          box.appendChild(
+            btn('Geri dönmedi mi? Adresi yapıştır', 'mcp-link-btn', () => {
+              auth.showPaste = true;
+              renderSheet();
+            })
+          );
+        }
+      } else {
+        box.appendChild(
+          el('span', 'opt-desc', 'Girişten sonra tarayıcı “sayfaya ulaşılamıyor” diyecek; bu normal. O sayfanın adres çubuğundaki adresin tamamını kopyalayıp buraya yapıştır:')
+        );
+      }
+      if (auth.error) box.appendChild(el('span', 'mcp-error', auth.error));
+      if (auth.mode === 'paste' || auth.showPaste) box.appendChild(mcpPasteForm(server.name, auth));
+    }
+    return box;
+  }
+
   function mcpRow(server) {
+    const auth = mcpAuth.get(server.name);
     const row = el('div', 'mcp-row');
     const text = el('div', 'opt-text');
     text.appendChild(el('span', 'opt-title', server.name));
@@ -1309,12 +1450,25 @@
     if (server.status === 'connected' && typeof server.tools === 'number') meta.push(`${server.tools} araç`);
     if (meta.length) text.appendChild(el('span', 'opt-desc', meta.join(' · ')));
     if (server.error) text.appendChild(el('span', 'mcp-error', server.error));
-    if (server.status === 'needs-auth') {
-      text.appendChild(el('span', 'opt-desc', 'Giriş için Terminal sekmesinde claude yazıp /mcp komutunu kullan.'));
+    const needsLogin = server.status === 'needs-auth' || (server.status === 'failed' && AUTH_ERROR_RE.test(server.error || ''));
+    if (!auth || auth.phase === 'done') {
+      if (needsLogin && isGitHubServer(server)) text.appendChild(githubHint());
+      else if (server.status === 'needs-auth') text.appendChild(el('span', 'opt-desc', "Bu sunucu giriş istiyor: Giriş yap'a dokun."));
     }
     const side = el('div', 'mcp-side');
     side.appendChild(el('span', `mcp-badge ${server.status}`, MCP_STATUS[server.status] || server.status || '?'));
-    if (mcpState.live && server.status === 'failed') {
+    const busy = auth && (auth.phase === 'starting' || auth.phase === 'sending');
+    if (server.status === 'needs-auth' && !busy) {
+      // While a sign-in link is open, a new one can still be requested (an
+      // expired or closed page), but the link itself is the main action.
+      const open = auth && auth.phase === 'open';
+      side.appendChild(btn(open ? 'Bağlantıyı yenile' : 'Giriş yap', open ? 'mcp-retry' : 'mcp-retry primary', () => startMcpAuth(server.name)));
+    }
+    // A login waits on "Giriş yap". Logins finished elsewhere (GitHub's token
+    // via gh auth login or a secret, a claude.ai connector) need a reconnect.
+    const elsewhere = isGitHubServer(server) || (auth && auth.mode === 'external');
+    const canReconnect = server.status === 'failed' || (server.status === 'needs-auth' && elsewhere);
+    if (mcpState.live && canReconnect && !busy) {
       side.appendChild(
         btn('Yeniden bağlan', 'mcp-retry', () => {
           mcpState = send({ type: 'mcp_reconnect', name: server.name }) ? null : { ...mcpState, error: 'Bağlantı yok, biraz sonra tekrar dene.' };
@@ -1323,6 +1477,7 @@
       );
     }
     row.append(text, side);
+    if (auth) row.appendChild(mcpAuthPanel(server, auth));
     return row;
   }
 
@@ -1335,9 +1490,14 @@
     if (!mcpState.live) {
       body.appendChild(
         el('div', 'sheet-note', mcpState.servers.length
-          ? 'Claude şu an çalışmıyor; liste son başlatmadaki durum. Güncel durum bir sonraki mesajla gelir.'
-          : 'Claude şu an çalışmıyor. MCP sunucuları bir sonraki mesajla başlar.')
+          ? 'Claude şu an çalışmıyor; liste son başlatmadaki durum.'
+          : 'Claude şu an çalışmıyor; MCP sunucuları Claude başlayınca bağlanır.')
       );
+      const live = el('div', 'sheet-group');
+      live.appendChild(
+        sheetOption("Claude'u başlat ve güncel durumu al", 'Mesaj gönderilmez; konuşma aynen devam eder.', false, () => refreshMcp(true))
+      );
+      body.appendChild(live);
     }
     if (mcpState.servers.length) {
       const g = el('div', 'sheet-group');
@@ -1365,6 +1525,8 @@
 
   function renderSheet() {
     if (!status) return;
+    // Every render shows the latest state, including deferred MCP updates.
+    mcpRenderPending = false;
     const s = status.settings;
     const header = el('div', 'sheet-header');
     if (sheetView === 'main') header.appendChild(iconBtn('✕', 'Kapat', closeSheet));
@@ -1406,6 +1568,10 @@
 
   function closeSheet() {
     if (els.sheet.hidden) return;
+    // Finished sign-ins need no more notes; ones still waiting stay.
+    for (const [name, auth] of mcpAuth) {
+      if (auth.phase === 'done' || auth.phase === 'error') mcpAuth.delete(name);
+    }
     els.sheet.classList.remove('open');
     els.sheetBackdrop.classList.remove('open');
     setTimeout(() => {
@@ -1736,8 +1902,26 @@
         break;
       case 'mcp':
         mcpState = { live: !!msg.live, servers: Array.isArray(msg.servers) ? msg.servers : [], error: msg.error || '' };
-        if (!els.sheet.hidden && sheetView === 'mcp') renderSheet();
+        refreshMcpSheet();
         break;
+      case 'mcp_auth': {
+        if (typeof msg.name !== 'string') break;
+        const prev = mcpAuth.get(msg.name) || {};
+        if (msg.error) mcpAuth.set(msg.name, { phase: 'error', error: msg.error });
+        else if (msg.done) mcpAuth.set(msg.name, { phase: 'done' });
+        else if (msg.authUrl) mcpAuth.set(msg.name, { phase: 'open', authUrl: msg.authUrl, mode: msg.mode || 'paste', draft: prev.draft || '' });
+        refreshMcpSheet();
+        break;
+      }
+      case 'mcp_auth_done': {
+        if (typeof msg.name !== 'string') break;
+        const prev = mcpAuth.get(msg.name);
+        if (msg.ok) mcpAuth.set(msg.name, { phase: 'done' });
+        else if (prev && prev.authUrl) mcpAuth.set(msg.name, { ...prev, phase: 'open', showPaste: true, error: msg.error || 'Giriş tamamlanamadı.' });
+        else mcpAuth.set(msg.name, { phase: 'error', error: msg.error || 'Giriş tamamlanamadı.' });
+        refreshMcpSheet();
+        break;
+      }
       case 'live':
         showLive(msg.text, 6000);
         break;
@@ -1819,6 +2003,8 @@
     clearAttachments();
     sessionName = null;
     closeSheet();
+    mcpAuth.clear();
+    mcpState = null;
     closeLightbox();
     hideLive();
     els.rate.hidden = true;

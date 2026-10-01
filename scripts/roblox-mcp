@@ -1,8 +1,0 @@
-#!/bin/sh
-# Roblox Studio MCP sunucusu (@chrrxs/robloxstudio-mcp) icin sarmalayici.
-# Studio eklentisini Vinegar'in Studio'sunun eklenti klasorune kurar ve
-# Studio'yu Vinegar ile acabilmesi icin ROBLOX_STUDIO_EXE'yi ayarlar.
-. /app/scripts/roblox-env.sh
-export ROBLOX_STUDIO_EXE="${ROBLOX_STUDIO_EXE:-/app/scripts/roblox-studio-exe}"
-mkdir -p "$MCP_PLUGINS_DIR" 2>/dev/null || true
-exec robloxstudio-mcp --auto-install-plugin "$@"

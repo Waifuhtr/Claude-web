@@ -35,17 +35,21 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
   çubuğu vardır.
 - **Çoklu oturum:** Her oturumun kendi klasörü (`$WORKSPACE_ROOT/<isim>`),
   sohbeti ve terminali olur.
-- **MCP:** Her oturum klasörüne örnek bir `.mcp.json` kopyalanır; eklediğin
-  sunucular hem sohbette hem terminalde kullanılır. Sunucuların durumu ve
-  "Claude'u yeniden başlat" model menüsündeki **MCP sunucuları** ekranındadır.
+- **MCP:** Eklediğin sunucular hem sohbette hem terminalde kullanılır.
+  Model menüsündeki **MCP sunucuları** ekranı her sunucunun durumunu
+  gösterir; giriş isteyen (OAuth) sunuculara oradaki **Giriş yap** ile
+  telefondan da bağlanılır.
+- **GitHub:** GitHub MCP, `gh` ve `git push` aynı token'la çalışır: Terminal'de
+  bir kez `gh auth login` (telefonda kodla giriş) ya da `GITHUB_TOKEN` secret'ı.
 - **Hazır tarayıcı:** İmajda Google Chrome ve Playwright MCP kurulu gelir;
   her oturumda elle ayar yapmadan web sayfalarında gezinebilir.
-- **Ekran sekmesi (sanal ekran):** Konteynerdeki sanal masaüstünü canlı
-  gösterir; telefondan dokunarak ve yazarak kontrol edilir. Claude da aynı
-  ekranı görüp tıklayabilir, yazabilir.
-- **Roblox Studio:** Vinegar (Wine) ile sanal ekranda çalışır; Claude ona
-  Roblox Studio MCP ile bağlanıp script yazar, Luau çalıştırır, playtest
-  yapar. Roblox girişini Ekran sekmesinden bir kez yaparsın.
+- **Ekran sekmesi (sanal ekran, isteğe bağlı):** `AGENTWEB_DISPLAY=1` ile
+  açılır; konteynerdeki sanal masaüstünü canlı gösterir, telefondan dokunarak
+  kontrol edilir ve Claude da aynı ekranı görüp kullanabilir. Ekran
+  görüntüleri çok token harcadığı için varsayılan olarak kapalıdır.
+- **Token tasarrufu (bilgi kaybı olmadan):** Kullanılmayan araçlar
+  yüklenmez, tekrarlayan araç tanımları kaldırıldı; rtk yalnızca çıktısı
+  kayıpsız kısalabilen komutlarda (git status, npm script'leri) devrededir.
 - **Kalıcılık:** `/data` yoluna bir Storage Bucket bağlıysa `HOME` otomatik
   olarak oraya yönlendirilir (giriş bilgisi, sohbet geçmişi, MCP ayarları ve
   proje dosyaları kalıcı olur). Bucket yoksa her yeniden başlatmada sıfırlanır.

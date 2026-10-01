@@ -2080,10 +2080,86 @@ details.turn-end[open] summary::after {
 
 .mcp-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
   border-top: 1px solid var(--border-soft);
+}
+
+/* Sign-in steps for one server, under its name and buttons. */
+.mcp-auth {
+  flex-basis: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-auth-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #0d1117;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mcp-paste {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mcp-paste input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-strong);
+  /* 16px keeps iOS Safari from zooming in on focus. */
+  font-size: 16px;
+}
+
+.mcp-paste input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mcp-paste .mcp-retry {
+  min-height: 40px;
+}
+
+.mcp-link-btn {
+  align-self: flex-start;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.mcp-hint code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--raised);
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.mcp-ok {
+  color: var(--ok);
 }
 
 .mcp-error {
@@ -2141,6 +2217,13 @@ details.turn-end[open] summary::after {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.mcp-retry.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #0d1117;
 }
 
 .sheet-label {

@@ -41,8 +41,33 @@ echo "Agent Web terminali. Claude Code'u baslatmak icin: claude"
 EOF
 fi
 
-# Playwright MCP'yi (tarayici) her oturumda ayni ayarlarla kullanilabilir yap:
-# ~/.claude.json icinde kullanici kapsamli tanim. Hata verirse uygulama yine acilir.
+# Roblox Studio (Vinegar) destegi kaldirildi: eski surumun kalici HOME'da
+# biraktigi veriyi (Wine/Studio dosyalari ve Roblox giris yedegi dahil) sil.
+for old in \
+  "$HOME/.config/agentweb/roblox" \
+  "$HOME/.config/vinegar" \
+  "$HOME/.local/share/agentweb-roblox" \
+  "$HOME/.robloxstudio-mcp" \
+  "$HOME/.local/state/robloxstudio-mcp"; do
+  if [ -e "$old" ]; then
+    rm -rf -- "$old" && echo "[entrypoint] Eski Roblox verisi silindi: $old"
+  fi
+done
+rmdir "$HOME/.config/agentweb" 2>/dev/null || true
+
+# git, github.com icin GitHub MCP ile ayni token'i kullansin (GH_TOKEN /
+# GITHUB_TOKEN secret'i ya da `gh auth login`). Kendi ayarin varsa dokunulmaz.
+helper="!/app/scripts/git-credential-github"
+current_helpers="$(git config --global --get-all credential.https://github.com.helper 2>/dev/null || true)"
+if [ -z "$current_helpers" ]; then
+  git config --global credential.https://github.com.helper "$helper" \
+    || echo "[entrypoint] UYARI: git icin GitHub kimlik yardimcisi ayarlanamadi."
+fi
+
+# MCP sunuculari (Playwright tarayici, Agent Web araclari, GitHub) her oturumda
+# ayni ayarlarla: ~/.claude.json icinde kullanici kapsamli tanim. rtk: Bash
+# ciktilarini kisaltan hook. Hata verirlerse uygulama yine acilir.
 node /app/scripts/setup-mcp.js || echo "[entrypoint] UYARI: MCP varsayilanlari uygulanamadi."
+node /app/scripts/setup-rtk.js || echo "[entrypoint] UYARI: rtk ayarlanamadi."
 
 exec node /app/server/index.js

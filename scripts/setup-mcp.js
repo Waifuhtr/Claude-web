@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Makes the Playwright MCP server available, configured the same way, in every
+// Makes Agent Web's MCP servers available, configured the same way, in every
 // session. Claude Code reads MCP servers from ~/.claude.json: the top-level
 // "mcpServers" (user scope) applies to every folder, while entries under
 // "projects[<folder>].mcpServers" (local scope, the default of `claude mcp add`)
@@ -11,19 +11,24 @@
 const fs = require('fs');
 const path = require('path');
 
-// Google Chrome is installed in the image (see Dockerfile). The container has
-// no user namespaces, so the browser runs without Chrome's own sandbox
-// (Playwright MCP enables it by default for the chrome channel), and headless
-// so it never depends on the virtual screen. --isolated keeps each session's
-// browser profile in memory, so parallel sessions never fight over one
-// profile directory.
+// playwright: Google Chrome is installed in the image (see Dockerfile). The
+// container has no user namespaces, so the browser runs without Chrome's own
+// sandbox (Playwright MCP enables it by default for the chrome channel), and
+// headless so it never depends on the virtual screen. --isolated keeps each
+// session's browser profile in memory, so parallel sessions never fight over
+// one profile directory.
 //
 // agentweb: Agent Web's own tools (share_file, virtual screen control).
-// robloxstudio: the Roblox Studio MCP, wrapped so its Studio plugin lands in
-// the plugin folder of the Studio that Vinegar runs (scripts/roblox-mcp).
 //
-// `requires` names a file the entry needs; entries whose file is missing (an
-// image without Roblox support, say) are left out.
+// github: GitHub's remote MCP server. It has no OAuth client registration for
+// other apps, so a sign-in from Claude Code can never complete; it takes a
+// token instead. The headersHelper reads one from GH_TOKEN / GITHUB_TOKEN or
+// from `gh auth login` each time Claude connects, so no token is written here.
+// An entry that already authenticates on its own (its own Authorization
+// header, helper or OAuth client) is kept as it is.
+//
+// `requires` names a file the entry needs; entries whose file is missing are
+// left out.
 const MANAGED = {
   playwright: {
     entry: {
@@ -44,18 +49,32 @@ const MANAGED = {
     detect: /agentweb-mcp/,
     requires: '/app/scripts/agentweb-mcp.js',
   },
-  robloxstudio: {
+  github: {
     entry: {
-      type: 'stdio',
-      command: '/app/scripts/roblox-mcp',
-      args: [],
-      env: {},
+      type: 'http',
+      url: 'https://api.githubcopilot.com/mcp/',
+      headersHelper: '/app/scripts/github-mcp-headers',
     },
-    // The read-only inspector edition is a deliberate choice; leave it alone.
-    detect: /robloxstudio-mcp(?!-inspector)|\/roblox-mcp\b/,
-    requires: '/app/scripts/roblox-mcp',
+    detect: /^https:\/\/api\.githubcopilot\.com\//,
+    keep: authenticatesOnItsOwn,
+    requires: '/app/scripts/github-mcp-headers',
   },
 };
+
+// Servers earlier versions added and no longer ship. Removed while they are
+// still what was written (or point at a wrapper that no longer exists).
+const RETIRED = {
+  // Roblox Studio MCP (Roblox Studio through Vinegar is gone).
+  robloxstudio: { brokenIf: (entry) => entry && entry.command === '/app/scripts/roblox-mcp' },
+};
+
+function authenticatesOnItsOwn(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  if (typeof entry.headersHelper === 'string' && entry.headersHelper) return true;
+  if (entry.oauth && typeof entry.oauth === 'object' && entry.oauth.clientId) return true;
+  const headers = entry.headers && typeof entry.headers === 'object' ? entry.headers : {};
+  return Object.keys(headers).some((key) => /^authorization$/i.test(key));
+}
 
 function defaultManaged() {
   const out = {};
@@ -88,8 +107,8 @@ function same(a, b) {
 // A hand-made entry for the same server (e.g. from `claude mcp add`).
 function isSameServer(entry, detect) {
   if (!entry || typeof entry !== 'object') return false;
-  const parts = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])];
-  return parts.some((part) => detect.test(String(part)));
+  const parts = [entry.command, entry.url, ...(Array.isArray(entry.args) ? entry.args : [])];
+  return parts.some((part) => typeof part === 'string' && detect.test(part));
 }
 
 function readState(file) {
@@ -138,12 +157,21 @@ function apply(home, managed = defaultManaged()) {
     const wanted = spec.entry;
     const current = config.mcpServers[name];
     const previous = state.servers[name];
+    const keep = typeof spec.keep === 'function' ? spec.keep : () => false;
 
     if (previous === undefined) {
       // First run: take over the name. A hand-made entry for the same server
       // (user or per-folder scope) is replaced so every session behaves the same.
       if (current !== undefined && !isSameServer(current, spec.detect)) {
         log(`"${name}" adinda baska bir sunucu tanimli; dokunulmadi.`);
+        continue;
+      }
+      if (current !== undefined && keep(current)) {
+        // Works on its own (e.g. a token in its own header): leave it, and
+        // from now on treat it as the user's.
+        log(`"${name}" icin kendi ayarin korunuyor.`);
+        state.servers[name] = { userOwned: true };
+        stateChanged = true;
         continue;
       }
       if (!same(current, wanted)) {
@@ -154,7 +182,7 @@ function apply(home, managed = defaultManaged()) {
       const projects = config.projects && typeof config.projects === 'object' ? config.projects : {};
       for (const [folder, project] of Object.entries(projects)) {
         const servers = project && project.mcpServers;
-        if (servers && isSameServer(servers[name], spec.detect)) {
+        if (servers && isSameServer(servers[name], spec.detect) && !keep(servers[name])) {
           delete servers[name];
           configChanged = true;
           log(`${folder} klasorune ozel eski "${name}" tanimi kaldirildi.`);
@@ -179,6 +207,23 @@ function apply(home, managed = defaultManaged()) {
     // Otherwise the user customised the entry; it stays as it is.
   }
 
+  for (const [name, spec] of Object.entries(RETIRED)) {
+    const previous = state.servers[name];
+    if (previous === undefined) continue;
+    const current = config.mcpServers[name];
+    if (current !== undefined) {
+      if (same(current, previous) || spec.brokenIf(current)) {
+        delete config.mcpServers[name];
+        configChanged = true;
+        log(`"${name}" sunucusu kaldirildi (artik Agent Web'de yok).`);
+      } else {
+        log(`"${name}" elle degistirilmis; dokunulmadi.`);
+      }
+    }
+    delete state.servers[name];
+    stateChanged = true;
+  }
+
   if (configChanged) {
     const backup = `${configFile}.agentweb-backup`;
     if (fs.existsSync(configFile) && !fs.existsSync(backup)) fs.copyFileSync(configFile, backup);
@@ -198,4 +243,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { apply, MANAGED };
+module.exports = { apply, MANAGED, RETIRED };

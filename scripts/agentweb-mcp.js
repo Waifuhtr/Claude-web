@@ -2,8 +2,10 @@
 // Agent Web's own MCP server (stdio, newline-delimited JSON-RPC 2.0).
 //  - share_file: hands files to the user; the web server sees the result and
 //    shows them in the chat as download cards (see server/chat.js).
-//  - screen tools: look at and drive the virtual X display (Roblox Studio,
-//    browser, ...) that the user watches in the "Ekran" tab.
+//  - screen tools: look at and drive the virtual X display (a browser, ...)
+//    that the user watches in the "Ekran" tab. Only listed when the display is
+//    on (the web server sets DISPLAY only then, see server/display.js): their
+//    schemas and screenshots would only cost tokens otherwise.
 // No dependencies on purpose: it starts fast and needs nothing from npm.
 'use strict';
 
@@ -14,6 +16,7 @@ const readline = require('readline');
 const { spawn } = require('child_process');
 
 const SERVER_INFO = { name: 'agentweb', version: '1.0.0' };
+const SCREEN = !!process.env.DISPLAY;
 const DISPLAY = process.env.DISPLAY || ':99';
 const MAX_SHARE_FILES = 10;
 const MAX_SHARE_BYTES = 50 * 1024 * 1024;
@@ -28,8 +31,6 @@ const MAX_TYPE_CHARS = 5000;
 const LOG_DIR = path.join(os.tmpdir(), 'agentweb-logs');
 
 const APPS = {
-  roblox_studio: { title: 'Roblox Studio', command: 'roblox-studio', args: ['--foreground'] },
-  vinegar_settings: { title: 'Vinegar ayarları', command: 'vinegar', args: ['manage'] },
   browser: { title: 'Tarayıcı', command: 'agentweb-browser', args: [] },
 };
 
@@ -66,7 +67,7 @@ const TOOLS = [
     title: 'Ekran görüntüsü',
     description:
       'Screenshot of the virtual screen (X display) that the user sees in the "Ekran" tab, where GUI apps ' +
-      'such as Roblox Studio and the browser run. Every screen tool takes coordinates in the pixels of this image.',
+      'such as the browser run. Every screen tool takes coordinates in the pixels of this image.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { title: 'Ekran görüntüsü', readOnlyHint: true, openWorldHint: false },
   },
@@ -177,9 +178,8 @@ const TOOLS = [
     name: 'launch_app',
     title: 'Uygulama başlat',
     description:
-      'Start a GUI app on the virtual screen: "roblox_studio" (Roblox Studio through Vinegar/Wine; the first ' +
-      'start downloads Wine and Studio and takes several minutes), "vinegar_settings" (Vinegar\'s settings ' +
-      'window) or "browser" (Chrome, optionally opening url). Check progress with screenshot.',
+      'Start a GUI app on the virtual screen: "browser" (Chrome, optionally opening url). ' +
+      'Check progress with screenshot.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -511,11 +511,7 @@ async function launchApp(args) {
   } finally {
     fs.closeSync(log);
   }
-  const note =
-    args.app === 'roblox_studio'
-      ? ' İlk açılışta Wine ve Studio indirilir; birkaç dakika sürebilir. Studio giriş ekranı gelirse kullanıcıdan Ekran sekmesinden Roblox hesabıyla giriş yapmasını isteyin.'
-      : '';
-  return [text(`${app.title} başlatıldı.${note} Durumu screenshot ile kontrol edin. Günlük: ${logFile}`)];
+  return [text(`${app.title} başlatıldı. Durumu screenshot ile kontrol edin. Günlük: ${logFile}`)];
 }
 
 function shareFile(args) {
@@ -574,6 +570,10 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+function listedTools() {
+  return SCREEN ? TOOLS : TOOLS.filter((tool) => tool.name === 'share_file');
+}
+
 async function handle(message) {
   const { id, method, params } = message;
   const isRequest = id !== undefined && id !== null;
@@ -590,9 +590,10 @@ async function handle(message) {
             protocolVersion: /^\d{4}-\d{2}-\d{2}$/.test(requested || '') ? requested : '2025-06-18',
             capabilities: { tools: { listChanged: false } },
             serverInfo: SERVER_INFO,
-            instructions:
-              'Agent Web tools. share_file sends files to the user in the chat. The screen tools drive the ' +
-              'virtual display the user watches in the "Ekran" tab (Roblox Studio, browser).',
+            instructions: SCREEN
+              ? 'Agent Web tools. share_file sends files to the user in the chat. The screen tools drive the ' +
+                'virtual display the user watches in the "Ekran" tab.'
+              : 'Agent Web tools. share_file sends files to the user in the chat.',
           },
         });
         return;
@@ -601,11 +602,12 @@ async function handle(message) {
         send({ jsonrpc: '2.0', id, result: {} });
         return;
       case 'tools/list':
-        send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
+        send({ jsonrpc: '2.0', id, result: { tools: listedTools() } });
         return;
       case 'tools/call': {
         const name = params && params.name;
-        const handler = Object.prototype.hasOwnProperty.call(HANDLERS, name) ? HANDLERS[name] : null;
+        const listed = listedTools().some((tool) => tool.name === name);
+        const handler = listed && Object.prototype.hasOwnProperty.call(HANDLERS, name) ? HANDLERS[name] : null;
         if (!handler) {
           send({ jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown tool: ${name}` } });
           return;

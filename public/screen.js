@@ -134,7 +134,7 @@ async function start() {
     setDot('off');
     showOverlay(
       status.disabled
-        ? 'Sanal ekran kapalı (AGENTWEB_DISPLAY=0).'
+        ? "Sanal ekran kapalı. Açmak için Space ayarlarına AGENTWEB_DISPLAY=1 değişkenini ekle."
         : "Bu kurulumda sanal ekran yok (Xvfb bulunamadı). Space'i güncel Dockerfile ile yeniden derleyin (Settings → Factory rebuild).",
       { busy: false }
     );
@@ -354,9 +354,7 @@ function option(title, desc, onClick, opts = {}) {
 }
 
 const APP_DESC = {
-  roblox_studio: 'İlk açılışta Wine ve Studio indirilir; birkaç dakika sürebilir.',
-  vinegar_settings: 'Renderer, Wine ve Studio ayarları',
-  browser: 'Roblox girişi gibi web işleri için',
+  browser: 'Sanal ekranda Google Chrome',
 };
 
 async function launch(app) {
@@ -371,7 +369,7 @@ async function launch(app) {
 }
 
 async function restartDisplay() {
-  if (!window.confirm('Sanal ekran yeniden başlatılsın mı? Açık tüm pencereler (Roblox Studio dahil) kapanır.')) return;
+  if (!window.confirm('Sanal ekran yeniden başlatılsın mı? Açık tüm pencereler kapanır.')) return;
   closeSheet();
   disconnect();
   setDot('busy');
@@ -398,7 +396,7 @@ function renderSheet() {
 
   const apps = el('div', 'sheet-group');
   for (const app of Array.isArray(s.apps) ? s.apps : []) {
-    const title = app.id === 'roblox_studio' ? "Roblox Studio'yu başlat" : app.id === 'browser' ? 'Tarayıcıyı aç' : app.title;
+    const title = app.id === 'browser' ? 'Tarayıcıyı aç' : app.title;
     apps.appendChild(
       option(title, app.available ? APP_DESC[app.id] || '' : 'Bu kurulumda yok', () => launch(app), { disabled: !app.available })
     );

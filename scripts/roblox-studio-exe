@@ -1,4 +1,0 @@
-#!/bin/sh
-# robloxstudio-mcp'nin ROBLOX_STUDIO_EXE'si (manage_instance ile Studio acma):
-# Studio'yu Vinegar uzerinden on planda calistirir.
-exec /app/scripts/roblox-studio --foreground "$@"

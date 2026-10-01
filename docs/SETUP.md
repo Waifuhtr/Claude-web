@@ -4,8 +4,8 @@
 
 1. huggingface.co'da **New Space** > SDK olarak **Docker** seçin.
 2. Bu repodaki tüm dosyaları (`Dockerfile`, `server/`, `public/`,
-   `claude-config/`, `scripts/`, `package.json`, `package-lock.json`,
-   `README.md`, `docs/`) Space reposunun kök dizinine yükleyin (repoyu
+   `scripts/`, `package.json`, `package-lock.json`, `README.md`, `docs/`)
+   Space reposunun kök dizinine yükleyin (repoyu
    klonlayıp `git push` ile ya da web arayüzünden dosya dosya yükleyerek).
    `package-lock.json` önemlidir: Docker build'i `npm ci` ile tam olarak test
    edilmiş sürümleri kurar.
@@ -22,11 +22,21 @@
 | `SESSION_SECRET` | Önerilir | Giriş cookie'sini imzalamak için rastgele bir metin (örnek: `openssl rand -hex 32` çıktısı). Girmezseniz her yeniden başlatmada geçici olarak üretilir ve her restart'ta yeniden parola girmeniz gerekir. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Opsiyonel | Aşağıda "Claude kimlik doğrulama" B yöntemine bakın. |
 | `ANTHROPIC_API_KEY` | Opsiyonel | Abonelik yerine API key ile (kullandıkça ödemeli) çalışmak isterseniz. Tanımlıysa sohbet ve terminal abonelik yerine bunu kullanır. |
+| `GITHUB_TOKEN` | Opsiyonel | GitHub için kişisel erişim token'ı (bkz. bölüm 6). GitHub MCP, `gh` ve `git push` bunu kullanır. Terminal'den `gh auth login` yapacaksanız gerekmez. |
 
 Bu değerleri **Secret** olarak ekleyin, **Variable** olarak değil (Variable'lar
 herkese açık okunur ve Space kopyalandığında taşınır). `APP_PASSWORD` ve
 `SESSION_SECRET` Claude'un çalıştırdığı komutlara ve terminale hiç
 aktarılmaz.
+
+İsteğe bağlı ayarlar (gizli değiller; **Variable** olarak eklenebilir):
+
+| İsim | Varsayılan | Açıklama |
+|---|---|---|
+| `AGENTWEB_DISPLAY` | kapalı | `1` yapılırsa sanal ekran ve **Ekran** sekmesi açılır (bkz. bölüm 5). |
+| `SCREEN_RESOLUTION` | `1440x900` | Sanal ekranın çözünürlüğü. |
+| `AGENTWEB_RTK` | açık | `0` yapılırsa rtk (Bash çıktısı kısaltma) tamamen kapanır (bkz. bölüm 9). |
+| `AGENTWEB_PUBLIC_URL` | — | Space'i kendi alan adınızla kullanıyorsanız (ör. `https://agent.example.com`), MCP girişlerinden dönüş adresi. Normalde gerekmez. |
 
 ## 3. Claude kimlik doğrulama
 
@@ -134,13 +144,19 @@ Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/
 - Bilgisayarda **Enter** gönderir, **Shift+Enter** yeni satır açar; telefonda
   Enter yeni satırdır, gönder düğmesini kullanın.
 
-## 5. Sanal ekran (Ekran sekmesi)
+## 5. Sanal ekran (Ekran sekmesi, isteğe bağlı)
 
-Konteynerde gerçek bir masaüstü yoktur; bunun yerine bir sanal ekran (Xvfb,
-varsayılan 1440×900) çalışır. Claude'un ve terminalin açtığı grafik
-programlar (Roblox Studio, tarayıcı…) bu ekrana çizilir. Üst çubuktaki
-**Ekran** sekmesi onu canlı gösterir ve kontrol etmeni sağlar (noVNC; görüntü
-yalnızca parolalı oturumundan, Space'in kendi adresi üzerinden gelir).
+Sanal ekran **varsayılan olarak kapalıdır**: Claude'un ekran araçları her
+ekran görüntüsünde binlerce token harcar ve kullanım limitini hızla doldurur.
+Gerekirse Space **Settings > Variables** kısmına `AGENTWEB_DISPLAY=1`
+ekleyin; Space yeniden başlayınca üst çubukta **Ekran** sekmesi görünür.
+Kapalıyken sekme gizlidir ve Claude'a ekran araçları hiç sunulmaz.
+
+Açıldığında konteynerde bir sanal ekran (Xvfb, varsayılan 1440×900) çalışır.
+Claude'un ve terminalin açtığı grafik programlar (ör. tarayıcı) bu ekrana
+çizilir. **Ekran** sekmesi onu canlı gösterir ve kontrol etmeni sağlar
+(noVNC; görüntü yalnızca parolalı oturumundan, Space'in kendi adresi
+üzerinden gelir).
 
 - **Telefonda:** Dokun = tıkla, iki parmakla dokun = sağ tık, iki parmakla
   sürükle = fare tekerleği. **1:1** düğmesi görüntüyü gerçek boyuta getirir;
@@ -155,65 +171,93 @@ yalnızca parolalı oturumundan, Space'in kendi adresi üzerinden gelir).
   basılı kalan Ctrl/Alt/Shift vardır (ör. Ctrl'ye dokunup Klavye'den `s`
   yazınca Ctrl+S gider). Bilgisayarda görüntüye tıklayıp doğrudan klavyeyi
   kullanabilirsin.
-- **Menü:** Roblox Studio, Vinegar ayarları ve tarayıcıyı başlatma; uzak
-  panodaki metni kopyalama; yeniden bağlanma ve ekranı yeniden başlatma
-  (açık tüm pencereleri kapatır).
+- **Menü:** tarayıcıyı başlatma; uzak panodaki metni kopyalama; yeniden
+  bağlanma ve ekranı yeniden başlatma (açık tüm pencereleri kapatır).
 - **Claude'un ekran araçları:** `agentweb` MCP sunucusu Claude'a ekran
   görüntüsü alma, tıklama, sürükleme, yazma, tuşa basma, kaydırma, pencere
   listeleme/öne alma ve uygulama başlatma araçları verir. Ekran görüntüsü ve
   pencere listesi sormadan çalışır; ekranı değiştiren araçlar izin kartı
   çıkarır ("Her zaman izin ver" ile o oturum için kalıcı yapabilirsin).
-- Ayarlar (Space **Variables**): `SCREEN_RESOLUTION` (ör. `1280x800`,
-  `1920x1080`; ekran kartı olmadığı için büyük çözünürlük yavaşlatır),
-  `AGENTWEB_DISPLAY=0` (sanal ekranı tamamen kapatır).
+- `SCREEN_RESOLUTION` (ör. `1280x800`) ekranın boyutunu belirler; ekran kartı
+  olmadığı için büyük çözünürlük yavaşlatır.
 
-## 6. Roblox Studio (Vinegar + Roblox Studio MCP)
+> Roblox Studio (Vinegar) desteği kaldırıldı: Studio'nun her tıklamadan önce
+> ekran görüntüsü isteyen MCP'si limiti çok hızlı tüketiyordu. Eski sürümün
+> kalıcı HOME'da bıraktığı Roblox/Vinegar verisi (Roblox giriş yedeği dahil)
+> ilk açılışta otomatik silinir; `robloxstudio` MCP tanımı da kaldırılır.
 
-Roblox Studio Windows programıdır; burada
-[Vinegar](https://github.com/vinegarhq/vinegar) ile, Wine üzerinden sanal
-ekranda çalışır. Claude ona
-[Roblox Studio MCP](https://github.com/Chrrxs/robloxstudio-mcp) (`robloxstudio`
-sunucusu) ile bağlanır: yer (place) yapısını okuma/düzenleme, script yazma,
-Luau çalıştırma, playtest başlatma, log/ekran görüntüsü/profil alma, asset
-arama ve ekleme gibi ~50 araç.
+## 6. GitHub ve giriş isteyen MCP sunucuları
 
-**İlk kurulum (bir kez):**
+### GitHub (MCP, `gh` ve `git push`)
 
-1. **Ekran** sekmesini aç, **Menü → Roblox Studio'yu başlat**'a dokun (ya da
-   sohbette Claude'a "Roblox Studio'yu aç" de). İlk açılışta Vinegar Wine'ı,
-   Studio'yu ve WebView2'yi indirip kurar: birkaç dakika sürer, ilerleme
-   Vinegar penceresinde görünür.
-2. Studio giriş ekranı gelince Roblox hesabınla Ekran sekmesinden giriş yap
-   (yazmak için **Klavye**). Parolanı sohbete yazma; Claude'dan da isteme.
-   Studio gömülü giriş penceresini açamazsa tarayıcıda giriş ister: sanal
-   ekranda Chrome açılır, girişten sonra "Vinegar'ı aç" sorusuna **Aç** de.
-3. Studio açılınca MCP eklentisi (MCPPlugin) otomatik yüklü gelir ve Claude'a
-   bağlanır. Studio eklenti için izin sorarsa Ekran sekmesinden onayla.
-   Sohbette "Studio'ya bağlı mısın?" diye sorarak deneyebilirsin
-   (`get_connected_instances`).
+GitHub'ın MCP sunucusu (`api.githubcopilot.com/mcp`) başka uygulamaların
+OAuth ile giriş yapmasına izin vermez ("dinamik istemci kaydı" yok); Claude
+Code'da "Giriş yap"/`/mcp` ile bağlanmaya çalışınca *Incompatible auth server:
+does not support dynamic client registration* hatası bundan gelir. Bu yüzden
+Agent Web GitHub'a **token** ile bağlanır ve aynı token'ı üç yerde kullanır:
+GitHub MCP (`github` sunucusu, tüm oturumlarda hazır tanımlı), `gh` komutu ve
+`git push/pull/clone` (github.com için kimlik yardımcısı). İki yoldan birini
+seçin:
 
-**Bilmen gerekenler:**
+**A) Telefondan, token oluşturmadan — `gh auth login`:**
 
-- **Ekran kartı yok:** Görüntü işlemci (CPU) ile yazılımsal olarak çizilir.
-  Studio'nun menüleri ve script düzenleme rahat çalışır; 3B görünüm ve
-  playtest yavaş olabilir. Claude işin çoğunu MCP üzerinden (görüntüye
-  ihtiyaç duymadan) yapar.
-- **3B görünüm siyahsa ya da Studio açılır açılmaz kapanıyorsa:** Menü →
-  **Vinegar ayarları** → *Renderer* seçeneğini `D3D11` yap (varsayılan
-  `DXVK`), Studio'yu kapatıp yeniden başlat.
-- **Nerede ne tutulur:** Wine, Studio ve Wine prefix'i (~2–3 GB) yerel diskte
-  (`/var/lib/agentweb/roblox`) durur ve Space yeniden başladığında yeniden
-  indirilir. Roblox girişi ve Studio ayarları, Studio normal kapatıldığında
-  kalıcı HOME'a (`~/.config/agentweb/roblox/settings.reg`) yedeklenir ve
-  sonraki kurulumda geri yüklenir; yani Studio'yu menüden kapatmayı
-  alışkanlık edin. Studio'da kaydettiğin `.rbxl` dosyaları `~/Documents`
-  altındadır (Storage Bucket varsa kalıcı).
-- **Terminal/Claude komutları:** `roblox-studio` (arka planda başlatır),
-  `roblox-studio dosya.rbxl` (bir yer dosyasını açar), `vinegar manage`
-  (Vinegar ayarları). Günlükler: `/tmp/agentweb-logs/`.
-- Studio birden fazla oturumda aynı anda tek bir kopya olarak çalışır; tüm
-  oturumlardaki Claude'lar aynı Studio'ya bağlanır (MCP sunucusu ilk açılanı
-  ana sunucu yapar, diğerleri ona yönlenir).
+1. Bir oturumda **Terminal** sekmesine geçip `gh auth login` yazın.
+2. Sorulara: *GitHub.com* → *HTTPS* → *Authenticate Git…: Yes* → *Login with
+   a web browser*. Ekranda 8 haneli bir kod çıkar.
+3. Telefonda `https://github.com/login/device` adresini açıp kodu girin ve
+   izin verin. Terminal "Logged in as …" der.
+4. **Sohbet** sekmesinde model düğmesi → **MCP sunucuları** → `github`
+   satırında **Yeniden bağlan**'a dokunun (Claude çalışmıyorsa önce *Claude'u
+   başlat ve güncel durumu al*). Durum *Bağlı* olur.
+
+Storage Bucket bağlıysa giriş kalıcıdır (`~/.config/gh`).
+
+**B) Secret ile — `GITHUB_TOKEN`:**
+
+1. GitHub → *Settings → Developer settings → Fine-grained tokens* sayfasında
+   bir token oluşturun; sadece gereken depoları seçin. İzinler: *Contents*,
+   *Pull requests*, *Issues* (Read and write), *Metadata* (Read).
+2. Space **Settings > Variables and secrets**'a `GITHUB_TOKEN` adıyla
+   **Secret** olarak ekleyin. Space yeniden başlar; GitHub MCP, `gh` ve `git`
+   hemen çalışır.
+
+Notlar:
+
+- Token hiçbir dosyaya yazılmaz: GitHub MCP her bağlanışta
+  `scripts/github-mcp-headers` ile, git ise `scripts/git-credential-github`
+  ile token'ı ortamdan (`GH_TOKEN`/`GITHUB_TOKEN`) ya da `gh` girişinden alır.
+  Claude'un komutları da token'ı görebilir (git/`gh` için gerekli); bu yüzden
+  sadece gereken depolara yetkili bir token kullanın.
+- Kendi `github` MCP tanımınız token'ı kendi başlığında taşıyorsa ona
+  dokunulmaz. Sadece token'sız (çalışamayan) eski OAuth tanımları ilk
+  açılışta bu tanıma çevrilir. Kaldırmak için:
+  `claude mcp remove github -s user`.
+- GitHub MCP'nin araçları çoktur ama Claude Code araç tanımlarını gerektiğinde
+  yükler (bkz. bölüm 9); bağlı olması her mesajda büyük bir maliyet getirmez.
+
+### Giriş isteyen diğer MCP sunucuları (OAuth)
+
+Linear, Notion, Sentry, Atlassian gibi uzak MCP sunucuları ilk kullanımda
+hesap girişi ister (MCP listesinde *Giriş gerekli*). Claude Code'un kendi
+giriş akışı tarayıcıyı `http://localhost:<port>/callback` adresine döndürür;
+bu adres telefondan açılamadığı için girişler eskiden yarıda kalıyordu. Artık:
+
+1. Model düğmesi → **MCP sunucuları** → ilgili satırda **Giriş yap**.
+2. **Giriş sayfasını aç ↗** yeni sekmede sağlayıcının giriş sayfasını açar;
+   giriş yapıp izin verin.
+3. Sağlayıcı sizi Agent Web'in `/oauth/callback` adresine geri gönderir,
+   "Giriş tamamlandı" sayfası çıkar; sekmeyi kapatıp geri dönün. Sunucu
+   kendiliğinden yeniden bağlanır (*Bağlı*).
+
+Bazı sağlayıcılar sadece `localhost` dönüş adresine izin verir. O zaman ekran
+bunu söyler: girişten sonra tarayıcı "sayfaya ulaşılamıyor" der; o sayfanın
+adres çubuğundaki adresin **tamamını** kopyalayıp MCP ekranındaki kutuya
+yapıştırın ve **Gönder**'e dokunun. claude.ai bağlayıcıları (Context7 gibi)
+claude.ai'ın kendi sayfasında bağlanır; bitince **Yeniden bağlan**.
+
+`/oauth/callback` adresi parola istemez (dönüş başka bir siteden geldiği için
+giriş cookie'si gönderilmez); yalnızca uygulamadan başlatılmış, süresi
+dolmamış (15 dakika) bir girişin tek kullanımlık `state` değerini kabul eder.
 
 ## 7. Kalıcılık (Storage Bucket)
 
@@ -246,7 +290,7 @@ klasöre ekler. Tüm oturumlarda olsun istediğiniz sunucuyu kullanıcı
 kapsamıyla ekleyin, örneğin:
 
 ```bash
-claude mcp add --scope user github -e GITHUB_PERSONAL_ACCESS_TOKEN=buraya-token -- npx -y @modelcontextprotocol/server-github
+claude mcp add --scope user --transport http linear https://mcp.linear.app/mcp
 ```
 
 Storage Bucket bağlıysa `~/.claude.json` ve oturum klasörleri kalıcıdır; MCP
@@ -284,20 +328,20 @@ Aynı şekilde iki sunucu daha tüm oturumlara tanımlanır:
 
 | İsim | Ne yapar |
 |---|---|
-| `agentweb` | Agent Web'in kendi araçları: `share_file` (sohbete dosya gönderme) ve sanal ekran araçları (bkz. bölüm 5). |
-| `robloxstudio` | Roblox Studio MCP (`@chrrxs/robloxstudio-mcp`, sabit sürüm). `scripts/roblox-mcp` sarmalayıcısıyla çalışır; Studio eklentisini Vinegar'ın Studio'sunun eklenti klasörüne kurar (bkz. bölüm 6). |
+| `agentweb` | Agent Web'in kendi araçları: `share_file` (sohbete dosya gönderme); sanal ekran açıksa ekran araçları da (bkz. bölüm 5). |
+| `github` | GitHub MCP, token ile (bkz. bölüm 6). Token yoksa *Giriş gerekli* görünür; zararsızdır. |
 
-Daha önce `claude mcp add robloxstudio -- npx -y @chrrxs/robloxstudio-mcp@latest ...`
-gibi elle eklenmiş bir tanım varsa ilk açılışta bu sarmalayıcıya çevrilir
-(eklentinin doğru klasöre kurulması için gereklidir). Salt okunur
-"inspector" sürümüne dokunulmaz. Kullanmak istemezseniz
-`claude mcp remove robloxstudio -s user` ile kaldırabilirsiniz.
+Eski sürümün eklediği `robloxstudio` tanımı, değiştirilmemişse ilk açılışta
+kaldırılır.
 
 ### Durumu görme ve yeniden başlatma
 
 Sohbette model düğmesine dokunup **MCP sunucuları** satırını açın: her
 sunucunun durumu (Bağlı / Hata / Giriş gerekli), kapsamı ve hata mesajı
-görünür. Hatalı bir sunucuyu **Yeniden bağlan** ile tekrar deneyebilirsiniz.
+görünür. Hatalı bir sunucuyu **Yeniden bağlan** ile tekrar deneyebilir, giriş
+isteyenlere **Giriş yap** ile bağlanabilirsiniz (bölüm 6). Claude o an
+çalışmıyorsa **Claude'u başlat ve güncel durumu al** mesaj göndermeden
+başlatır.
 
 MCP ayarları Claude başlarken okunur. `~/.claude.json` ya da `.mcp.json`'ı
 değiştirdikten sonra aynı ekrandaki **Claude'u yeniden başlat**'a dokunun:
@@ -305,18 +349,54 @@ konuşma korunur, bir sonraki mesajla birlikte yeni ayarlar yüklenir.
 
 ### Proje `.mcp.json` dosyası ve onay
 
-Her yeni oturum klasörüne `claude-config/mcp.example.json`'dan bir
-`.mcp.json` kopyalanır (varsayılan: sadece `filesystem` sunucusu). Claude Code
-güvenlik gereği bu dosyadaki sunucuları ilk kez kullanmadan önce onay ister;
-sohbet ekranında bu onay penceresi çıkmadığı için yeni bir sunucu ekledikten
-sonra o oturumun **Terminal** sekmesinde bir kez `claude` açıp onaylayın.
+Bir oturum klasörüne `.mcp.json` koyarsanız içindeki sunucular o oturumda
+yüklenir. Claude Code güvenlik gereği bu dosyadaki sunucuları ilk kez
+kullanmadan önce onay ister; sohbet ekranında bu onay penceresi çıkmadığı
+için yeni bir sunucu ekledikten sonra o oturumun **Terminal** sekmesinde bir
+kez `claude` açıp onaylayın.
+
+Eski sürümler her yeni oturum klasörüne `filesystem` sunuculu bir `.mcp.json`
+kopyalıyordu. Bu sunucu Claude Code'un kendi dosya araçlarını (Read, Write,
+Edit, Glob, Grep) tekrarladığı için kaldırıldı; hiç değiştirilmemiş eski
+kopyalar oturum açılırken silinir, değiştirdikleriniz kalır.
 
 API key/token gerektiren sunucular için değeri Space Secret olarak tanımlayıp
-`env` içinde o değişkene referans vermeyi deneyin; çalışmazsa değeri dosyaya
-yazıp Storage Bucket sayesinde kalıcı tutabilirsiniz. `npx`/`uvx` ile çalışan
-MCP sunucuları ilk çalıştırmada paketi otomatik indirir (443 üzerinden).
+yapılandırmada `${DEGISKEN_ADI}` biçiminde referans verin (Claude Code
+`command`, `args`, `env`, `url` ve `headers` içindeki ortam değişkenlerini
+açar). `npx`/`uvx` ile çalışan MCP sunucuları ilk çalıştırmada paketi
+otomatik indirir (443 üzerinden).
 
-## 9. Ağ kısıtlaması
+## 9. Token tasarrufu
+
+Hiçbiri Claude'un gördüğü bilgiyi azaltmaz:
+
+- **Kaldırılan yükler:** Roblox Studio MCP (her istekte binlerce token'lık
+  talimat ve araç listesi) ve tekrarlayan `filesystem` sunucusu kaldırıldı;
+  sanal ekran kapalıyken ekran araçları ve ekranla ilgili sistem notu hiç
+  gönderilmez.
+- **Claude Code'un kendi varsayılanları (ayar gerekmez):** MCP araçlarının
+  tanımları her istekte gönderilmez, Claude gerektiğinde arayıp yükler (tool
+  search). Abonelikle (claude.ai girişi) kullanırken Claude Code ana
+  konuşmanın önbelleğini normalde 1 saat tutar; yarım saatlik bir aradan
+  sonra devam etmek konuşmayı baştan ücretlendirmez (ek kullanım kredisine
+  geçildiğinde Claude Code bunu 5 dakikaya indirir). Çok büyük MCP çıktıları sohbete gömülmek yerine dosyaya
+  yazılır ve Claude ihtiyaç duyduğu kısmını okur.
+- **rtk (güvenli mod):** [rtk](https://github.com/rtk-ai/rtk), Bash
+  komutlarının çıktısını Claude okumadan önce kısaltan bir araçtır. Çoğu
+  filtresi özet çıkarır (ör. test hatalarını birkaç satıra indirir, `head
+  -20`'yi "akıllı" bir alıntıya çevirir, `git push` çıktısını "ok"a indirir);
+  bu bilgi kaybı demek olduğundan Agent Web onu yalnızca çıktısı aynı bilgiyi
+  taşıyan komutlarda açar: `git status`, `git add` ve npm/npx ile script
+  çalıştırma (sadece npm'in kendi başlık, uyarı ve bildirim satırları gider,
+  programın çıktısı aynen kalır). Okuma, arama, listeleme, diff/log,
+  indirme, test, lint ve derleme komutları rtk'ye hiç uğramaz. Ayarlar
+  `~/.config/rtk/config.toml`'dadır; oradaki listeden komut çıkararak
+  tasarrufu artırabilirsiniz (o komutların çıktısı rtk'nin özetine döner).
+  Tamamen kapatmak için `AGENTWEB_RTK=0`. Ne kadar kazandırdığını terminalde
+  `rtk gain` gösterir. rtk izin sorma akışını değiştirmez: komut yine izin
+  kartıyla sorulur (kartta komutun başında `rtk` görünür).
+
+## 10. Ağ kısıtlaması
 
 HF Space'lerin dışarı giden trafiği sadece **80, 443, 8080** portlarına
 gidebilir. Pratikte:
@@ -327,7 +407,7 @@ gidebilir. Pratikte:
   6379, ...), özel TCP/UDP protokolleri. Bu tür bir ihtiyaç için Cloudflare
   Tunnel veya Tailscale gibi 443 üzerinden tünelleyen bir katman kullanın.
 
-## 10. Sorun giderme
+## 11. Sorun giderme
 
 - **Space açılmıyor / hemen kapanıyor:** Space'in **Logs** sekmesine bakın;
   `entrypoint.sh` ve sunucu açıklayıcı Türkçe mesajlar yazar (özellikle
@@ -354,11 +434,17 @@ gidebilir. Pratikte:
 - **Ekran sekmesi sürekli "yeniden bağlanılıyor":** Menü → **Ekranı yeniden
   başlat**. Düzelmezse terminalde `cat /tmp/agentweb-logs/xvfb.log
   /tmp/agentweb-logs/vnc.log` çıktısına bakın.
-- **Roblox Studio açılmıyor:** `cat /tmp/agentweb-logs/roblox_studio.log` ve
-  Vinegar'ın kendi günlüğü (`/var/lib/agentweb/roblox/cache/vinegar/logs/`).
-  Renderer'ı `D3D11` yapmayı deneyin (bölüm 6). Wine verisini sıfırlamak
-  için Vinegar ayarlarındaki *Delete Prefix Data* kullanılabilir.
-- **Claude Studio'yu göremiyor:** Studio açık ve giriş yapılmış olmalı.
-  Sohbette model düğmesi → **MCP sunucuları**'nda `robloxstudio` *Bağlı*
-  görünmeli; değilse **Yeniden bağlan**. Studio'da eklenti panelinde
-  bağlantı durumu görünür.
+- **GitHub MCP *Giriş gerekli* ya da 401 hatası:** Token yok ya da geçersiz.
+  Terminal'de `gh auth status` ile kontrol edin; `gh auth login` yapın ya da
+  `GITHUB_TOKEN` secret'ını yenileyin, sonra MCP ekranında **Yeniden bağlan**
+  (bölüm 6). "dynamic client registration" hatası GitHub'ın OAuth'u
+  desteklememesinden gelir; token yolunu kullanın.
+- **`git push` parola soruyor / 403:** Token'ın o depoya *Contents: Read and
+  write* izni olmalı. `git config --global --get-all
+  credential.https://github.com.helper` Agent Web'in yardımcısını
+  göstermeli (kendi yardımcınız varsa ona dokunulmaz).
+- **Bir MCP girişi "tanınmadı ya da süresi doldu" diyor:** Giriş 15 dakika
+  içinde tamamlanmalı ve Claude arada yeniden başlamamalı. MCP ekranından
+  **Giriş yap**'a yeniden dokunun.
+- **rtk'nin bir komutu bozduğunu düşünüyorsanız:** Komutun başına
+  `RTK_DISABLED=1` ekleyin ya da rtk'yi `AGENTWEB_RTK=0` ile kapatın.

@@ -1,0 +1,22 @@
+#!/bin/sh
+# GitHub MCP sunucusunun (api.githubcopilot.com/mcp) headersHelper'i: Claude
+# Code her baglantida bunu calistirir ve ciktidaki JSON'u istek basliklarina
+# ekler. GitHub bu sunucu icin OAuth "dinamik istemci kaydi" desteklemedigi
+# icin giris token ile yapilir. Token sirasiyla GH_TOKEN, GITHUB_TOKEN (Space
+# secret'i) ya da `gh auth login` ile kaydedilmis giristen alinir; diske
+# yazilmaz.
+token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
+  token="$(gh auth token --hostname github.com 2>/dev/null || true)"
+fi
+if [ -z "$token" ]; then
+  echo "GitHub token yok: Terminal'de 'gh auth login' calistirin ya da GITHUB_TOKEN secret'i ekleyin." >&2
+  exit 1
+fi
+case "$token" in
+  *[!A-Za-z0-9_.-]*)
+    echo "GitHub token beklenmeyen karakterler iceriyor." >&2
+    exit 1
+    ;;
+esac
+printf '{"Authorization":"Bearer %s"}\n' "$token"

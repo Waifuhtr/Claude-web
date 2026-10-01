@@ -1,7 +1,7 @@
 #!/bin/sh
 # Sanal ekranda Google Chrome (Agent Web > Ekran sekmesi). Konteynerde
-# Chrome'un kendi sandbox'i calismadigi icin --no-sandbox ile acilir. Studio'nun
-# "tarayicida giris yap" akisi ve xdg-open bu komutu kullanir.
+# Chrome'un kendi sandbox'i calismadigi icin --no-sandbox ile acilir. xdg-open
+# (web adresleri) bu komutu kullanir.
 : "${DISPLAY:=:99}"
 export DISPLAY
 

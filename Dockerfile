@@ -1,22 +1,3 @@
-# ---- Vinegar: Roblox Studio'yu Linux'ta (Wine ile) calistiran baslatici ----
-# Hazir Linux ikilisi dagitilmiyor (yalnizca Flatpak), bu yuzden surumu sabit
-# kaynak koddan derlenir. GTK 4.18 / libadwaita 1.6 istedigi icin hem bu asama
-# hem de calisma imaji Debian 13 (trixie) tabanlidir.
-FROM golang:1.26-trixie AS vinegar
-ARG VINEGAR_VERSION=v1.9.4
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        g++ \
-        make \
-        pkg-config \
-        gettext \
-        libglib2.0-dev-bin \
-        libvulkan-dev \
-    && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch "$VINEGAR_VERSION" https://github.com/vinegarhq/vinegar /src/vinegar
-WORKDIR /src/vinegar
-RUN make && make install DESTDIR=/out PREFIX=/usr
-
-# ---- Agent Web ----
 FROM node:22-trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -38,6 +19,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install --no-cache-dir --break-system-packages uv
 
+# GitHub CLI (gh): PR/issue islemleri ve `gh auth login` (telefonda tek
+# seferlik kodla giris). GitHub MCP ve git de bu girisi kullanir
+# (scripts/github-mcp-headers, scripts/git-credential-github).
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# rtk: gurultulu Bash komutlarinin (kurulum, derleme, test, lint) ciktisini
+# Claude okumadan once kisaltir; scripts/setup-rtk.js hook'unu ve bilgi
+# kaybetmeyen ayarlarini yazar. Tek statik ikili; surum ve SHA-256 sabit
+# (surum yukseltilirken ikisi birlikte degistirilir: release'in checksums.txt'i).
+ARG RTK_VERSION=v0.49.0
+ARG RTK_SHA256=7278231dfd7e6a730a4ab7f847b195bcf02289c2d57622b0dab75a6411100c8f
+RUN set -e; cd /tmp; \
+    curl -fsSL -o rtk.tar.gz "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/rtk-x86_64-unknown-linux-musl.tar.gz"; \
+    echo "${RTK_SHA256}  rtk.tar.gz" | sha256sum -c -; \
+    if tar -tzf rtk.tar.gz | grep -qE '^/|(^|/)\.\.(/|$)'; then echo "rtk arsivinde guvensiz yol" >&2; exit 1; fi; \
+    mkdir rtk-x; \
+    tar -xzf rtk.tar.gz -C rtk-x; \
+    install -m 755 rtk-x/rtk /usr/local/bin/rtk; \
+    rm -rf rtk-x rtk.tar.gz; \
+    rtk --version
+
 # Google Chrome: Playwright MCP'nin tarayicisi (/opt/google/chrome/chrome).
 # Kurulumu root ister; bu yuzden calisma aninda degil burada kurulur ve her
 # konteynerde hazir olur. Noto CJK/emoji fontlari, ekran goruntulerinde
@@ -48,12 +57,9 @@ RUN curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chro
     && rm -f /tmp/chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
-# Sanal ekran (Ekran sekmesi) ve Roblox Studio (Vinegar + Wine) calisma zamani:
+# Sanal ekran (Ekran sekmesi; varsayilan kapali, AGENTWEB_DISPLAY=1 ile acilir):
 # Xvfb (ekran), openbox (pencere yoneticisi), x11vnc (tarayiciya goruntu),
-# xdotool + xclip + ImageMagick (Claude'un ekran araclari), GTK4/libadwaita (Vinegar'in
-# arayuzu), Mesa (ekran karti olmadan yazilimla OpenGL/Vulkan) ve Wine'in
-# kullandigi kutuphaneler. Wine'in kendisini Vinegar ilk acilista indirir.
-# Ikinci listedekiler istege bagli: biri bulunamazsa derleme yine de biter.
+# xdotool + xclip + ImageMagick (Claude'un ekran araclari).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb \
         x11vnc \
@@ -67,56 +73,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dbus-x11 \
         xdg-utils \
         desktop-file-utils \
-        shared-mime-info \
-        libgtk-4-1 \
-        libadwaita-1-0 \
-        adwaita-icon-theme \
-        hicolor-icon-theme \
-        libgl1-mesa-dri \
-        libglx-mesa0 \
-        libegl1 \
-        mesa-vulkan-drivers \
-        libvulkan1 \
-        libfreetype6 \
-        libfontconfig1 \
         fonts-liberation \
         fonts-dejavu-core \
-        libx11-6 \
-        libxext6 \
-        libxrender1 \
-        libxrandr2 \
-        libxi6 \
-        libxcursor1 \
-        libxcomposite1 \
-        libxinerama1 \
-        libxfixes3 \
-        libxkbcommon0 \
-        libdbus-1-3 \
-        libwayland-client0 \
-        libunwind8 \
-        libkrb5-3 \
-        libgssapi-krb5-2 \
-        libusb-1.0-0 \
-        libpulse0 \
-        xz-utils \
-        pci.ids \
-    && for pkg in libgnutls30t64 libasound2t64 libcups2t64 libxkbregistry0 libpcsclite1 \
-                  libsdl2-2.0-0 libgphoto2-6t64 libpcap0.8t64 libv4l-0t64 libsane1; do \
-         apt-get install -y --no-install-recommends "$pkg" \
-           || echo "[docker] istege bagli paket atlandi: $pkg"; \
-       done \
     && rm -rf /var/lib/apt/lists/*
 
-# Vinegar: gercek ikili /usr/lib/vinegar/vinegar; PATH'teki `vinegar` Agent
-# Web'in sarmalayicisidir (scripts/vinegar).
-COPY --from=vinegar /out/usr/ /usr/
-RUN mkdir -p /usr/lib/vinegar \
-    && mv /usr/bin/vinegar /usr/lib/vinegar/vinegar \
-    && update-mime-database /usr/share/mime
-
-# MCP sunuculari, surumleri sabit: Playwright (tarayici) ve Roblox Studio MCP.
-# scripts/setup-mcp.js onlari tum oturumlar icin tanimlar.
-RUN npm install -g @playwright/mcp@0.0.82 @chrrxs/robloxstudio-mcp@3.1.6 && npm cache clean --force
+# Playwright MCP (tarayici), surumu sabit. scripts/setup-mcp.js onu (ve Agent
+# Web'in kendi araclarini, GitHub MCP'yi) tum oturumlar icin tanimlar.
+RUN npm install -g @playwright/mcp@0.0.82 && npm cache clean --force
 
 # Terminal sekmesindeki `claude` komutu (giris/login ve elle kullanim icin).
 # Sohbet arayuzu ise package.json'daki Agent SDK'nin kendi Claude Code'unu kullanir;
@@ -131,15 +94,12 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY server ./server
 COPY public ./public
-COPY claude-config ./claude-config
 COPY scripts ./scripts
 
 # Web arayuzunden yuklenen dosyalarda calistirma izni kaybolabilir; burada verilir.
-# /var/lib/agentweb: Roblox/Wine verisi ve tarayici profili (yerel disk).
-RUN chmod +x scripts/entrypoint.sh scripts/agentweb-mcp.js scripts/vinegar scripts/roblox-studio \
-        scripts/roblox-studio-exe scripts/roblox-mcp scripts/browser \
-    && ln -sf /app/scripts/vinegar /usr/local/bin/vinegar \
-    && ln -sf /app/scripts/roblox-studio /usr/local/bin/roblox-studio \
+# /var/lib/agentweb: sanal ekrandaki tarayicinin profili (yerel disk).
+RUN chmod +x scripts/entrypoint.sh scripts/agentweb-mcp.js scripts/browser \
+        scripts/github-mcp-headers scripts/git-credential-github \
     && ln -sf /app/scripts/browser /usr/local/bin/agentweb-browser \
     && install -Dm644 scripts/desktop/agentweb-browser.desktop /usr/share/applications/agentweb-browser.desktop \
     && install -Dm644 scripts/desktop/mimeapps.list /usr/share/applications/mimeapps.list \
@@ -155,6 +115,8 @@ ENV HOME=/home/node
 ENV PATH="/home/node/.local/bin:${PATH}"
 # xdg-open ve diger araclar web adreslerini sanal ekrandaki Chrome'da acar.
 ENV BROWSER=agentweb-browser
+# rtk hicbir zaman kullanim verisi gondermesin.
+ENV RTK_TELEMETRY_DISABLED=1
 
 EXPOSE 7860
 

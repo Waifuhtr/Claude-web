@@ -5,8 +5,27 @@ const pty = require('node-pty');
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
+// Earlier versions copied claude-config/mcp.example.json into every new
+// session folder as .mcp.json. Its filesystem MCP server only duplicates
+// Claude Code's built-in file tools (and its tool list costs tokens on every
+// request), so an untouched copy is removed.
+const OLD_MCP_TEMPLATE = JSON.stringify({
+  mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] } },
+});
+
 function isValidName(name) {
   return typeof name === 'string' && NAME_RE.test(name);
+}
+
+function removeOldMcpTemplate(dir) {
+  const file = path.join(dir, '.mcp.json');
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return;
+  }
+  if (JSON.stringify(parsed) === OLD_MCP_TEMPLATE) fs.rmSync(file, { force: true });
 }
 
 class SessionManager {
@@ -63,11 +82,7 @@ class SessionManager {
   ensureWorkspace(name) {
     const dir = this.workdirFor(name);
     fs.mkdirSync(dir, { recursive: true });
-    const mcpTemplate = path.join(__dirname, '..', 'claude-config', 'mcp.example.json');
-    const mcpTarget = path.join(dir, '.mcp.json');
-    if (!fs.existsSync(mcpTarget) && fs.existsSync(mcpTemplate)) {
-      fs.copyFileSync(mcpTemplate, mcpTarget);
-    }
+    removeOldMcpTemplate(dir);
     return dir;
   }
 

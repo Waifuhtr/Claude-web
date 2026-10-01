@@ -1,8 +1,8 @@
-// Virtual X display for GUI programs (Roblox Studio through Vinegar, a
-// browser, ...). Claude draws on it through DISPLAY; the user watches and
-// controls it from the "Ekran" tab, where noVNC talks to x11vnc through an
-// authenticated WebSocket bridge (the VNC port itself only listens on
-// localhost).
+// Virtual X display for GUI programs (a browser, ...). Off unless
+// AGENTWEB_DISPLAY=1: screenshots of it cost many tokens. Claude draws on it
+// through DISPLAY; the user watches and controls it from the "Ekran" tab,
+// where noVNC talks to x11vnc through an authenticated WebSocket bridge (the
+// VNC port itself only listens on localhost).
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
@@ -23,8 +23,6 @@ const MAX_RESTARTS = 5;
 // Programs the "Uygulamalar" menu may start. Nothing else can be launched
 // from the browser.
 const APPS = {
-  roblox_studio: { title: 'Roblox Studio', command: 'roblox-studio', args: ['--foreground'] },
-  vinegar_settings: { title: 'Vinegar ayarları', command: 'vinegar', args: ['manage'] },
   browser: { title: 'Tarayıcı', command: 'agentweb-browser', args: [] },
 };
 
@@ -94,7 +92,7 @@ class DisplayManager {
   constructor({ env } = {}) {
     this.env = env || process.env;
     const setting = String(this.env.AGENTWEB_DISPLAY || '').trim().toLowerCase();
-    this.disabled = ['0', 'off', 'false', 'no'].includes(setting);
+    this.disabled = !['1', 'on', 'true', 'yes'].includes(setting);
     const number = Number(this.env.AGENTWEB_DISPLAY_NUMBER);
     this.number = Number.isInteger(number) && number >= 1 && number <= 999 ? number : 99;
     this.display = `:${this.number}`;
@@ -163,16 +161,23 @@ class DisplayManager {
   }
 
   spawnProc(name, bin, args) {
-    fs.mkdirSync(this.logDir, { recursive: true });
-    const log = openLog(path.join(this.logDir, `${name}.log`));
+    // A log that cannot be written (e.g. a folder left by another user) must
+    // not keep the screen from starting.
+    let log = null;
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true });
+      log = openLog(path.join(this.logDir, `${name}.log`));
+    } catch (err) {
+      console.error(`[display] ${name} gunlugu acilamadi: ${errMessage(err)}`);
+    }
     let child;
     try {
       child = spawn(bin, args, {
         env: { ...this.env, ...this.childEnv() },
-        stdio: ['ignore', log, log],
+        stdio: log === null ? 'ignore' : ['ignore', log, log],
       });
     } finally {
-      fs.closeSync(log);
+      if (log !== null) fs.closeSync(log);
     }
     this.procs[name] = child;
     child.on('error', (err) => {
@@ -207,7 +212,7 @@ class DisplayManager {
 
   ensure() {
     if (!this.available) {
-      return Promise.reject(new Error(this.disabled ? 'Sanal ekran kapalı (AGENTWEB_DISPLAY=0).' : 'Sanal ekran için Xvfb kurulu değil.'));
+      return Promise.reject(new Error(this.disabled ? 'Sanal ekran kapalı (açmak için AGENTWEB_DISPLAY=1).' : 'Sanal ekran için Xvfb kurulu değil.'));
     }
     if (this.isUp() && (!this.bins.wm || this.alive('wm')) && (!this.bins.dbus || this.alive('dbus'))) {
       return Promise.resolve();
@@ -254,7 +259,7 @@ class DisplayManager {
       ]);
     }
     // A window manager gives windows borders, focus and stacking; without one
-    // Wine/GTK dialogs can open behind the main window and never get focus.
+    // dialogs can open behind the main window and never get focus.
     if (this.bins.wm && !this.alive('wm')) {
       this.spawnProc('wm', this.bins.wm, ['--sm-disable']);
     }
@@ -364,13 +369,18 @@ class DisplayManager {
     const bin = findBinary(app.command, this.env.PATH);
     if (!bin) throw Object.assign(new Error(`${app.title} bu kurulumda yok.`), { status: 404 });
     await this.ensure();
-    fs.mkdirSync(this.logDir, { recursive: true });
     const logFile = path.join(this.logDir, `${id}.log`);
-    const log = openLog(logFile);
+    let log = null;
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true });
+      log = openLog(logFile);
+    } catch (err) {
+      console.error(`[display] ${app.title} gunlugu acilamadi: ${errMessage(err)}`);
+    }
     try {
       const child = spawn(bin, app.args, {
         env: { ...this.env, ...this.childEnv() },
-        stdio: ['ignore', log, log],
+        stdio: log === null ? 'ignore' : ['ignore', log, log],
         detached: true,
       });
       child.on('error', (err) => {
@@ -378,9 +388,9 @@ class DisplayManager {
       });
       child.unref();
     } finally {
-      fs.closeSync(log);
+      if (log !== null) fs.closeSync(log);
     }
-    return { ok: true, title: app.title, log: logFile };
+    return { ok: true, title: app.title, log: log === null ? '' : logFile };
   }
 
   async stopAll() {

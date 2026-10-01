@@ -26,10 +26,14 @@ const baseEnv = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'agent-web/1.0' }
 delete baseEnv.APP_PASSWORD;
 delete baseEnv.SESSION_SECRET;
 
-// Sanal ekran (Ekran sekmesi): Claude'un ve terminalin actigi pencereler
-// (Roblox Studio, tarayici...) DISPLAY uzerinden buraya cizilir.
+// Sanal ekran (Ekran sekmesi, AGENTWEB_DISPLAY=1 ile acilir): Claude'un ve
+// terminalin actigi pencereler (tarayici...) DISPLAY uzerinden buraya cizilir.
 const display = new DisplayManager({ env: baseEnv });
 const childEnv = { ...baseEnv, ...display.childEnv() };
+// The image points BROWSER at Chrome on the virtual screen; without the
+// screen there is nowhere to show it, so tools (gh, xdg-open) just print the
+// address instead of trying to start a browser.
+if (!display.available && childEnv.BROWSER === 'agentweb-browser') delete childEnv.BROWSER;
 
 const sessionManager = new SessionManager({
   workspaceRoot: WORKSPACE_ROOT,
@@ -44,7 +48,37 @@ const chatManager = new ChatManager({
   childEnv,
   ensureWorkspace: (name) => sessionManager.ensureWorkspace(name),
   displayAvailable: display.available,
+  publicUrl: process.env.AGENTWEB_PUBLIC_URL || '',
+  spaceHost: process.env.SPACE_HOST || '',
 });
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function oauthPage(result) {
+  const title = result.ok ? 'Giriş tamamlandı' : 'Giriş tamamlanamadı';
+  const parts = [];
+  if (result.ok) {
+    parts.push(`<p><b>${escapeHtml(result.server)}</b> MCP sunucusuna giriş yapıldı.</p>`);
+    parts.push("<p>Bu sekmeyi kapatıp Agent Web'e dönebilirsin; MCP listesi kendiliğinden güncellenir.</p>");
+  } else {
+    parts.push(`<p class="err">${escapeHtml(result.error || 'Bilinmeyen hata.')}</p>`);
+    if (result.unknown) {
+      parts.push(
+        "<p>Agent Web'de model düğmesi → <b>MCP sunucuları</b> ekranından <b>Giriş yap</b>'a yeniden dokun. " +
+          'Giriş hâlâ bekliyorsa bu sayfanın adresini kopyalayıp oradaki kutuya da yapıştırabilirsin.</p>'
+      );
+    }
+  }
+  return `<!doctype html>
+<html lang="tr"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>body{margin:0;background:#0d1117;color:#c9d1d9;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:520px;margin:12vh auto 0;padding:0 20px}h1{font-size:22px;color:#f0f6fc}.err{color:#ff7b72;overflow-wrap:anywhere}
+a{display:inline-block;margin-top:8px;padding:10px 16px;border-radius:10px;background:#238636;color:#fff;text-decoration:none;font-weight:600}</style>
+</head><body><main><h1>${title}</h1>${parts.join('')}<p><a href="/">Agent Web'e dön</a></p></main></body></html>`;
+}
 
 const VENDOR_FILES = {
   'marked.js': 'marked/lib/marked.umd.js',
@@ -103,6 +137,28 @@ app.post('/api/login', (req, res) => {
 app.post('/api/logout', (req, res) => {
   auth.clearAuthCookie(res);
   res.json({ ok: true });
+});
+
+// OAuth providers send the browser here after an MCP sign-in started from the
+// chat. Not behind the login: the auth cookie (SameSite=Strict) is not sent on
+// a redirect from another site; only a pending sign-in's one-time state is
+// accepted (see ChatManager.completeOAuth).
+app.get('/oauth/callback', async (req, res) => {
+  const url = req.originalUrl || '';
+  const at = url.indexOf('?');
+  let result;
+  try {
+    result = await chatManager.completeOAuth(req.query, at >= 0 ? url.slice(at) : '');
+  } catch (err) {
+    result = { ok: false, error: err.message };
+  }
+  res.set({
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.status(result.ok ? 200 : 400).type('html').send(oauthPage(result));
 });
 
 app.use('/api', auth.requireAuth);
@@ -231,7 +287,7 @@ server.on('upgrade', (req, socket, head) => {
   const name = match[2];
   wss.handleUpgrade(req, socket, head, (ws) => {
     sessionManager.touch(name);
-    if (isChat) chatManager.attach(ws, name);
+    if (isChat) chatManager.attach(ws, name, req.headers.origin);
     else attachTerminal(ws, name);
   });
 });
@@ -293,7 +349,9 @@ server.listen(PORT, () => {
       .ensure()
       .then(() => console.log(`[display] Sanal ekran hazir (DISPLAY=${display.display}, ${display.resolution})`))
       .catch((err) => console.error('[display]', err.message));
+  } else if (display.disabled) {
+    console.log('[display] Sanal ekran kapali (acmak icin AGENTWEB_DISPLAY=1); Ekran sekmesi gizli.');
   } else {
-    console.log('[display] Sanal ekran kapali ya da Xvfb kurulu degil; Ekran sekmesi kullanilamaz.');
+    console.log('[display] Xvfb kurulu degil; Ekran sekmesi kullanilamaz.');
   }
 });
