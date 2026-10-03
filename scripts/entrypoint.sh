@@ -31,6 +31,18 @@ fi
 
 mkdir -p "$HOME/.claude"
 
+# Calisirken kurulan programlar (npm install -g, uv tool install) ve MCP
+# sunuculari HOME altina gider: bucket bagliyken kalici olan tek yer orasi;
+# /tmp ve sistem klasorleri her yeniden baslatmada imajdaki haline doner.
+# Terminal (login kabugu) ayni ayari /etc/profile.d/agentweb.sh'ten alir.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+export NPM_CONFIG_PREFIX="$HOME/.local"
+export AGENTWEB_PERSISTENT="$PERSIST"
+mkdir -p "$HOME/.local/bin" "$HOME/mcp-servers"
+
 if ! grep -q "Agent Web terminali" "$HOME/.bashrc" 2>/dev/null; then
   # Eski surumun karsilama satirini temizle (kalici HOME'da iki kez gorunmesin).
   if [ -f "$HOME/.bashrc" ]; then

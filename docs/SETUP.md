@@ -36,6 +36,7 @@ aktarılmaz.
 | `AGENTWEB_DISPLAY` | kapalı | `1` yapılırsa sanal ekran ve **Ekran** sekmesi açılır (bkz. bölüm 5). |
 | `SCREEN_RESOLUTION` | `1440x900` | Sanal ekranın çözünürlüğü. |
 | `AGENTWEB_RTK` | açık | `0` yapılırsa rtk (Bash çıktısı kısaltma) tamamen kapanır (bkz. bölüm 9). |
+| `AGENTWEB_MCP_GUARD` | açık | `0` yapılırsa Claude'un MCP sunucusunu `/tmp`'deki bir yolla kaydetmesi engellenmez (bkz. bölüm 8). |
 | `AGENTWEB_PUBLIC_URL` | — | Space'i kendi alan adınızla kullanıyorsanız (ör. `https://agent.example.com`), MCP girişlerinden dönüş adresi. Normalde gerekmez. |
 
 ## 3. Claude kimlik doğrulama
@@ -271,6 +272,26 @@ mount olup olmadığını otomatik algılar (cihaz kimliği karşılaştırması
 algılarsa `HOME`'u `/data/home`'a yönlendirir. Sohbet geçmişi
 `$HOME/.cc-web/chats/` altında tutulur.
 
+> **Bucket'ı mutlaka _private_ yapın.** İçinde Claude giriş bilgileriniz
+> (`home/.claude/.credentials.json`), sohbet geçmişiniz ve tüm proje
+> dosyalarınız durur; herkese açık bir bucket'ta bunları herkes okuyabilir.
+> Bucket'ın sayfasında görünürlüğü kontrol edin. Daha önce herkese açık
+> kaldıysa private yaptıktan sonra Terminal'de `claude` → `/logout` ve
+> yeniden `/login` yapın; bucket'ta token tuttuysanız (ör. `gh auth login`)
+> onları da yenileyin.
+
+Neyin kalıcı olduğu:
+
+| Yer | Restart'tan sonra |
+|---|---|
+| `$HOME` (`/data/home`): giriş bilgileri, `~/.claude.json` (MCP ayarları), sohbet geçmişi, `~/.local`, `~/mcp-servers` | kalır |
+| Oturum klasörleri (`/data/workspace/<oturum>`) | kalır |
+| `/tmp`, `/usr`, `/opt`, `/app` ve diğer her yer | **imajdaki haline döner** |
+
+Çalışırken kurulan programlar bu yüzden `$HOME` altına gider: `npm install -g`
+ve `uv tool install` `~/.local`'e kurar (`~/.local/bin` PATH'te; sohbetteki
+Claude'da ve Terminal'de). `npx`/`uvx` önbellekleri de `$HOME`'dadır.
+
 ## 8. MCP sunucuları
 
 ### Sunucu listesi nereden geliyor?
@@ -387,6 +408,32 @@ Aynı ekranda her sunucunun adının altında bir düğme vardır:
 Eklentilerden (plugin) ya da yönetici ayarlarından gelen sunucularda düğme
 yoktur; onlar kendi yerlerinden yönetilir.
 
+### MCP sunucusu eklerken: kalıcı kurulum
+
+Bir MCP sunucusu eklemenin en kolay yolu Claude'a söylemektir ("şu MCP
+sunucusunu ekle"). Ayar `~/.claude.json`'a yazılır ve kalıcıdır, ama sunucunun
+**dosyaları** (git clone, derleme, sanal ortam) `/tmp`'ye kurulursa bir
+sonraki restart'ta silinir: sunucu *Hata* verir ve Claude "dosyalar /tmp'den
+silinmiş" der. Agent Web bunu üç katmanda önler:
+
+- **Claude'a talimat:** İmajdaki `/etc/claude-code/CLAUDE.md` her Claude'a
+  (sohbet ve Terminal) neyin kalıcı olduğunu söyler: sunucunun dosyaları
+  `~/mcp-servers/<ad>` altına kurulur, ayar o yolla ve
+  `claude mcp add --scope user` ile (tüm oturumlar için) yapılır.
+- **Engel:** `/etc/claude-code/managed-settings.json` içindeki bir hook,
+  `/tmp`'deki bir yolu kaydeden `claude mcp add` komutunu çalıştırmadan
+  durdurur ve Claude'a doğru klasörü söyler. Sadece bu tür komutlara bakar;
+  diğer komutlara dokunmaz. `AGENTWEB_MCP_GUARD=0` ile kapatılır.
+- **Onarım:** MCP ekranı `/tmp`'den çalışan sunucuyu sarı bir notla işaretler.
+  Dosyaları gitmişse **Kalıcı kur**, hâlâ duruyorsa **Kalıcı yap** düğmesi
+  çıkar. Düğme, Claude'a sunucuyu kalıcı klasöre kurmasını (ya da taşımasını)
+  ve ayarını güncellemesini söyleyen hazır bir mesajı sohbet kutusuna yazar;
+  gözden geçirip gönderirsiniz. Claude işini bitirince **Claude'u yeniden
+  başlat**'a dokunun.
+
+Açılışta Space günlüğü de `/tmp`'den çalışan sunucuları `UYARI:` satırıyla
+listeler.
+
 ### Proje `.mcp.json` dosyası ve onay
 
 Bir oturum klasörüne `.mcp.json` koyarsanız içindeki sunucular o oturumda
@@ -486,5 +533,11 @@ gidebilir. Pratikte:
 - **Bir MCP girişi "tanınmadı ya da süresi doldu" diyor:** Giriş 15 dakika
   içinde tamamlanmalı ve Claude arada yeniden başlamamalı. MCP ekranından
   **Giriş yap**'a yeniden dokunun.
+- **Eklediğim MCP sunucusu her restart'ta bozuluyor ("/tmp'den silinmiş"):**
+  Sunucu `/tmp`'ye kurulmuş; `/tmp` her yeniden başlatmada silinir. MCP
+  ekranında sunucunun yanındaki **Kalıcı kur**'a dokunup sohbete düşen mesajı
+  gönderin; Claude onu `~/mcp-servers/<ad>` altına kurar (bkz. bölüm 8).
+  Storage Bucket bağlı değilse `$HOME` da silinir; önce bucket bağlayın
+  (bölüm 7).
 - **rtk'nin bir komutu bozduğunu düşünüyorsanız:** Komutun başına
   `RTK_DISABLED=1` ekleyin ya da rtk'yi `AGENTWEB_RTK=0` ile kapatın.

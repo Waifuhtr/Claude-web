@@ -10,6 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { tempPathOf } = require(path.join(__dirname, 'temp-paths.js'));
 
 // playwright: Google Chrome is installed in the image (see Dockerfile). The
 // container has no user namespaces, so the browser runs without Chrome's own
@@ -128,6 +129,24 @@ function writeFileAtomic(file, text, mode) {
   fs.chmodSync(file, mode);
 }
 
+// MCP servers running from /tmp lose their files on every restart; say so in
+// the log (the MCP screen offers a permanent install).
+function reportTempServers(config) {
+  const lists = [['tum oturumlar', config.mcpServers]];
+  const projects = config.projects && typeof config.projects === 'object' ? config.projects : {};
+  for (const [folder, project] of Object.entries(projects)) {
+    if (project && project.mcpServers && typeof project.mcpServers === 'object') lists.push([folder, project.mcpServers]);
+  }
+  for (const [where, servers] of lists) {
+    for (const [name, entry] of Object.entries(servers || {})) {
+      const temp = tempPathOf(entry);
+      if (!temp) continue;
+      const gone = fs.existsSync(temp) ? '' : '; dosyalari silinmis';
+      log(`UYARI: "${name}" (${where}) ${temp} icinden calisiyor: /tmp her yeniden baslatmada silinir${gone}. MCP ekranindaki "Kalici kur" ile Claude'a kalici klasore kurdurabilirsin.`);
+    }
+  }
+}
+
 function apply(home, managed = defaultManaged()) {
   const configFile = path.join(home, '.claude.json');
   const stateFile = path.join(home, '.cc-web', 'managed-mcp.json');
@@ -148,6 +167,7 @@ function apply(home, managed = defaultManaged()) {
     }
   }
   if (!config.mcpServers || typeof config.mcpServers !== 'object') config.mcpServers = {};
+  reportTempServers(config);
 
   const state = readState(stateFile);
   let configChanged = false;

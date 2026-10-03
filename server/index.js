@@ -48,6 +48,8 @@ const chatManager = new ChatManager({
   childEnv,
   ensureWorkspace: (name) => sessionManager.ensureWorkspace(name),
   displayAvailable: display.available,
+  // Set by scripts/entrypoint.sh: a Storage Bucket keeps HOME and the sessions.
+  persistent: process.env.AGENTWEB_PERSISTENT === '1',
   publicUrl: process.env.AGENTWEB_PUBLIC_URL || '',
   spaceHost: process.env.SPACE_HOST || '',
 });

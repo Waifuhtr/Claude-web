@@ -1491,6 +1491,47 @@
     setMcpEdit(server.name, { action: edit.action, phase: 'busy' });
   }
 
+  // Files under /tmp are wiped when the Space restarts: the server stops
+  // working (or will) until it is installed in a folder that stays.
+  function tempHint(server) {
+    const hint = el('span', 'opt-desc mcp-hint mcp-warn');
+    hint.append(
+      server.tmpGone ? 'Dosyaları geçici klasördeydi (' : 'Geçici klasörde çalışıyor (',
+      el('code', '', server.tmpPath),
+      server.tmpGone
+        ? ') ve yeniden başlatmada silindi. Kalıcı kur: Claude onu kalıcı bir klasöre yeniden kursun.'
+        : '): Space yeniden başlayınca silinecek. Kalıcı yap: Claude onu kalıcı bir klasöre taşısın.'
+    );
+    return hint;
+  }
+
+  function mcpPermanentText(server) {
+    const folder = `~/mcp-servers/${server.name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+/, '') || 'sunucu'}`;
+    const source = mcpSource(server);
+    const scope = REMOVABLE_SOURCES.has(source) ? source : 'user';
+    const lines = server.tmpGone
+      ? [
+          `“${server.name}” MCP sunucusu geçici klasöre (${server.tmpPath}) kurulmuş. /tmp, Space her yeniden başladığında silindiği için dosyaları gitti ve sunucu çalışmıyor.`,
+          `Onu kalıcı olarak ${folder} klasörüne yeniden kur (nereden kurulduğunu bilmiyorsan ~/.claude/projects altındaki eski konuşma kayıtlarına bak),`,
+        ]
+      : [
+          `“${server.name}” MCP sunucusu geçici klasörde (${server.tmpPath}) çalışıyor. /tmp, Space her yeniden başladığında silindiği için bir sonraki yeniden başlatmada dosyaları gidecek.`,
+          `Onu kalıcı olarak ${folder} klasörüne taşı (gerekirse yeniden kur),`,
+        ];
+    return `${lines.join(' ')} ayarını aynı adla ve aynı kapsamla (--scope ${scope}) bu yola göre güncelle ve claude mcp list ile çalıştığını doğrula. Şu anki ayarı: claude mcp get ${server.name}`;
+  }
+
+  // Puts a ready request for Claude in the message box; the user reviews and sends it.
+  function askClaude(text) {
+    closeSheet();
+    const current = els.input.value.trim();
+    els.input.value = current ? `${current}\n\n${text}` : text;
+    autoGrow();
+    updateComposer();
+    els.input.focus();
+    els.input.setSelectionRange(els.input.value.length, els.input.value.length);
+  }
+
   // A command that wraps only between words ("--restore" stays whole).
   function commandCode(text) {
     const code = el('code', 'mcp-cmd');
@@ -1558,6 +1599,7 @@
     if (server.status === 'connected' && typeof server.tools === 'number') meta.push(`${server.tools} araç`);
     if (meta.length) text.appendChild(el('span', 'opt-desc', meta.join(' · ')));
     if (server.error) text.appendChild(el('span', 'mcp-error', server.error));
+    if (server.tmpPath) text.appendChild(tempHint(server));
     const needsLogin = server.status === 'needs-auth' || (server.status === 'failed' && AUTH_ERROR_RE.test(server.error || ''));
     if (!auth || auth.phase === 'done') {
       if (needsLogin && isGitHubServer(server)) text.appendChild(githubHint());
@@ -1575,7 +1617,8 @@
     // A login waits on "Giriş yap". Logins finished elsewhere (GitHub's token
     // via gh auth login or a secret, a claude.ai connector) need a reconnect.
     const elsewhere = isGitHubServer(server) || (auth && auth.mode === 'external');
-    const canReconnect = server.status === 'failed' || (server.status === 'needs-auth' && elsewhere);
+    // Reconnecting cannot bring back files that were wiped with /tmp.
+    const canReconnect = !server.tmpGone && (server.status === 'failed' || (server.status === 'needs-auth' && elsewhere));
     if (mcpState.live && canReconnect && !busy && !edit) {
       side.appendChild(
         btn('Yeniden bağlan', 'mcp-retry', () => {
@@ -1585,6 +1628,9 @@
       );
     }
     const source = mcpSource(server);
+    if (server.tmpPath && !edit && !busy) {
+      side.appendChild(btn(server.tmpGone ? 'Kalıcı kur' : 'Kalıcı yap', 'mcp-retry primary', () => askClaude(mcpPermanentText(server))));
+    }
     if (!edit) {
       if (server.status === 'disabled') {
         side.appendChild(btn('Aç', 'mcp-retry primary', () => sendMcpEdit(server, { action: 'enable' })));
@@ -1611,7 +1657,7 @@
     if (!mcpState.live) {
       body.appendChild(
         el('div', 'sheet-note', mcpState.servers.length
-          ? 'Claude şu an çalışmıyor; liste son başlatmadaki durum.'
+          ? 'Claude şu an çalışmıyor; liste son bilinen durum.'
           : 'Claude şu an çalışmıyor; MCP sunucuları Claude başlayınca bağlanır.')
       );
       const live = el('div', 'sheet-group');

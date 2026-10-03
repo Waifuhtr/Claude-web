@@ -1,0 +1,19 @@
+#!/bin/sh
+# Claude Code PreToolUse hook for the Bash tool, registered for every Claude in
+# this image by /etc/claude-code/managed-settings.json: refuses `claude mcp add`
+# when the MCP server would run from /tmp (wiped on every Space restart).
+# Commands without "mcp", "add" and a temp path never start node.
+# The Space variable AGENTWEB_MCP_GUARD=0 turns it off.
+case "${AGENTWEB_MCP_GUARD:-1}" in
+  0 | off | false | no) exit 0 ;;
+esac
+input=$(cat)
+case "$input" in
+  *mcp*add*) ;;
+  *) exit 0 ;;
+esac
+case "$input" in
+  */tmp* | */dev/shm*) ;;
+  *) exit 0 ;;
+esac
+printf '%s' "$input" | exec node "$(dirname "$0")/mcp-tmp-guard.js"

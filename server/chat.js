@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
+const { tempPathOf } = require('../scripts/temp-paths');
 
 const SDK_MODULE = '@anthropic-ai/claude-agent-sdk';
 
@@ -180,10 +181,13 @@ function looksLikeText(buf) {
 }
 
 // Appended to Claude Code's own system prompt for chat sessions.
-function webUiPrompt(displayAvailable) {
+function webUiPrompt(displayAvailable, storage = {}) {
   const lines = [
     `You are running inside Agent Web, a self-hosted web app (chat, terminal${displayAvailable ? ' and a virtual screen' : ''}) on a Linux container. The user reads your replies in the chat, often on a phone.`,
     '- To give the user a file (text, code, logs, CSV, documents, archives, images...), save it to disk and call the mcp__agentweb__share_file tool with its path: it shows up in the chat as a download card. Do this whenever the user asks you to send, share or give them a file, and prefer it over pasting very long content.',
+    storage.persistent
+      ? `- Storage: ${storage.home} and the session folders in ${storage.workspaceRoot} are on the Space's Storage Bucket and survive restarts; everything else, /tmp included, is reset.`
+      : `- Storage: no Storage Bucket is attached, so everything here (${storage.home || 'HOME'} included) is lost when the Space restarts. If the user wants files, logins or MCP servers to last, tell them to attach a Storage Bucket at /data in the Space settings.`,
   ];
   if (displayAvailable) {
     lines.push(
@@ -292,7 +296,15 @@ function summarizeMcp(server) {
     // Where the definition lives (user, local, project, claudeai, plugin...);
     // decides whether it can be removed from here.
     source: String(s.source || s.scope || ''),
+    // Its files are in /tmp (gone after the next restart).
+    tmpPath: truncate(tempPathOf(s.config), 300),
   };
+}
+
+// Whether a server's files in /tmp are still there (checked when shown).
+function withTempState(server) {
+  if (!server.tmpPath) return server;
+  return { ...server, tmpGone: !fs.existsSync(server.tmpPath) };
 }
 
 function validServerName(name) {
@@ -423,9 +435,16 @@ class ChatSession {
     this.draftTimer = null;
     this.currentMessageId = null;
     this.lastInit = null;
-    // Where each MCP server is defined, from the last live list: the list
-    // kept while Claude is stopped still says what can be removed.
-    this.mcpScopes = new Map();
+    // Where each MCP server is defined (and whether it runs from /tmp), from
+    // the last live list: the list kept while Claude is stopped still says
+    // what can be removed or needs a permanent install.
+    this.mcpInfo = new Map();
+    // The newest MCP list seen (Claude's start or a live status), shown while
+    // Claude is stopped. Claude Code reports its start only with a message,
+    // so "start and show the list" leaves just the live list.
+    this.mcpLast = null;
+    // Removed while the running Claude still has them: kept out of mcpLast.
+    this.mcpDropped = new Set();
     this.idleTimer = null;
     this.mediaDir = path.join(this.dir, 'media');
     this.filesDir = path.join(this.dir, 'files');
@@ -680,6 +699,7 @@ class ChatSession {
     this.run = run;
     // A fresh process reads the current MCP configuration.
     this.restartPending = false;
+    this.mcpDropped.clear();
     this.consume(run);
     // Refreshed on every start: a newer Claude Code may list new models.
     run.query.supportedModels().then((models) => this.manager.setModels(models)).catch(() => {});
@@ -783,6 +803,7 @@ class ChatSession {
         version: msg.claude_code_version || '',
         auth: msg.apiKeySource || '',
       };
+      this.mcpLast = this.lastInit.mcp.filter((s) => !this.mcpDropped.has(s.name)).map((s) => ({ ...this.mcpInfo.get(s.name), ...s }));
       this.syncPermissionMode(msg.permissionMode);
       this.broadcastStatus();
     } else if (msg.subtype === 'status') {
@@ -1514,15 +1535,16 @@ class ChatSession {
       }
     }
     const run = this.run;
-    const last = this.lastInit ? this.lastInit.mcp : [];
-    const reply = { type: 'mcp', live: false, servers: last.map((s) => ({ ...this.mcpScopes.get(s.name), ...s })) };
+    const reply = { type: 'mcp', live: false, servers: (this.mcpLast || []).map(withTempState) };
     if (startError) reply.error = startError;
     if (run && !run.closing) {
       try {
         const list = await withTimeout(run.query.mcpServerStatus(), MCP_STATUS_TIMEOUT_MS, 'MCP durumu alınamadı (zaman aşımı).');
         reply.live = true;
-        reply.servers = Array.isArray(list) ? list.map(summarizeMcp) : [];
-        this.mcpScopes = new Map(reply.servers.map((s) => [s.name, { scope: s.scope, source: s.source }]));
+        const servers = Array.isArray(list) ? list.map(summarizeMcp) : [];
+        this.mcpInfo = new Map(servers.map((s) => [s.name, { scope: s.scope, source: s.source, tmpPath: s.tmpPath }]));
+        this.mcpLast = servers.filter((s) => !this.mcpDropped.has(s.name));
+        reply.servers = servers.map(withTempState);
       } catch (err) {
         reply.error = errMessage(err);
       }
@@ -1693,16 +1715,18 @@ class ChatSession {
   }
 
   listsMcp(name) {
-    return this.mcpScopes.has(name) || !!(this.lastInit && this.lastInit.mcp.some((s) => s.name === name));
+    return this.mcpInfo.has(name) || !!(this.mcpLast && this.mcpLast.some((s) => s.name === name));
   }
 
   // Forgets a removed MCP server; returns true when the Claude process is
   // busy and restarts only after its turn.
   dropMcpServer(name) {
-    this.mcpScopes.delete(name);
+    this.mcpInfo.delete(name);
+    this.mcpDropped.add(name);
     if (this.lastInit && Array.isArray(this.lastInit.mcp)) {
       this.lastInit = { ...this.lastInit, mcp: this.lastInit.mcp.filter((s) => s.name !== name) };
     }
+    if (this.mcpLast) this.mcpLast = this.mcpLast.filter((s) => s.name !== name);
     if (!this.run) return false;
     if (this.running || this.pending.size) {
       this.restartPending = true;
@@ -1758,6 +1782,8 @@ class ChatSession {
     this.authRuns.clear();
     this.restartPending = false;
     this.lastInit = null;
+    this.mcpLast = null;
+    this.mcpDropped.clear();
     this.addEvent({ t: 'notice', text: 'Claude yeniden başlatıldı; MCP ve ayar değişiklikleri bir sonraki mesajla yüklenecek.' });
     this.broadcastStatus();
   }
@@ -1814,11 +1840,11 @@ class ChatSession {
 }
 
 class ChatManager {
-  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, displayAvailable, publicUrl, spaceHost }) {
+  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, displayAvailable, persistent, publicUrl, spaceHost }) {
     this.workspaceRoot = workspaceRoot;
     this.childEnv = childEnv;
     this.ensureWorkspace = ensureWorkspace;
-    this.systemPromptAppend = webUiPrompt(!!displayAvailable);
+    this.systemPromptAppend = webUiPrompt(!!displayAvailable, { persistent: !!persistent, home, workspaceRoot });
     // Where OAuth providers send the browser back to: an explicit public URL,
     // else the origin the page was opened from, else the Space's own host.
     this.publicUrl = normalizeOrigin(publicUrl);

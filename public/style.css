@@ -2172,6 +2172,15 @@ details.turn-end[open] summary::after {
   white-space: nowrap;
 }
 
+/* An MCP server running from /tmp (wiped on restart). */
+.mcp-warn {
+  color: var(--warn-text);
+}
+
+.mcp-warn code {
+  overflow-wrap: anywhere;
+}
+
 .mcp-ok {
   color: var(--ok);
 }

@@ -96,10 +96,20 @@ COPY server ./server
 COPY public ./public
 COPY scripts ./scripts
 
+# Her Claude icin (sohbet ve terminal) yonetilen Claude Code ayarlari, root'a
+# ait ve salt okunur: kalicilik notu (CLAUDE.md: MCP sunuculari ve araclar
+# /tmp'ye degil HOME'a kurulur) ve /tmp'deki bir MCP sunucusunu kaydetmeyi
+# durduran hook (managed-settings.json -> scripts/mcp-tmp-guard).
+# profile.d: terminalin login kabugu da ~/.local/bin'i ve npm ayarini alsin.
+COPY scripts/claude-managed/ /etc/claude-code/
+COPY scripts/agentweb-profile.sh /etc/profile.d/agentweb.sh
+
 # Web arayuzunden yuklenen dosyalarda calistirma izni kaybolabilir; burada verilir.
 # /var/lib/agentweb: sanal ekrandaki tarayicinin profili (yerel disk).
 RUN chmod +x scripts/entrypoint.sh scripts/agentweb-mcp.js scripts/browser \
         scripts/github-mcp-headers scripts/git-credential-github \
+        scripts/mcp-tmp-guard scripts/mcp-tmp-guard.js \
+    && chmod 644 /etc/claude-code/CLAUDE.md /etc/claude-code/managed-settings.json /etc/profile.d/agentweb.sh \
     && ln -sf /app/scripts/browser /usr/local/bin/agentweb-browser \
     && install -Dm644 scripts/desktop/agentweb-browser.desktop /usr/share/applications/agentweb-browser.desktop \
     && install -Dm644 scripts/desktop/mimeapps.list /usr/share/applications/mimeapps.list \
