@@ -1,4 +1,0 @@
-[Default Applications]
-text/html=agentweb-browser.desktop
-x-scheme-handler/http=agentweb-browser.desktop
-x-scheme-handler/https=agentweb-browser.desktop

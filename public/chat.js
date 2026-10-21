@@ -62,17 +62,7 @@
     Agent: 'Alt ajan',
     Skill: 'Yetenek',
     mcp__agentweb__share_file: 'Dosya paylaşımı',
-    mcp__agentweb__screenshot: 'Ekran görüntüsü',
-    mcp__agentweb__click: 'Ekran · tıklama',
-    mcp__agentweb__drag: 'Ekran · sürükleme',
-    mcp__agentweb__type_text: 'Ekran · yazma',
-    mcp__agentweb__press_keys: 'Ekran · tuş',
-    mcp__agentweb__scroll: 'Ekran · kaydırma',
-    mcp__agentweb__list_windows: 'Ekran · pencereler',
-    mcp__agentweb__focus_window: 'Ekran · pencere',
-    mcp__agentweb__launch_app: 'Uygulama başlatma',
   };
-  const APP_LABEL = { browser: 'Tarayıcı' };
   const MCP_STATUS = { connected: 'Bağlı', failed: 'Hata', 'needs-auth': 'Giriş gerekli', pending: 'Bağlanıyor', disabled: 'Kapalı' };
   const GITHUB_HOST_RE = /(^|\.)githubcopilot\.com$/i;
   // MCP servers defined in these places can be removed for good from the sheet.
@@ -330,14 +320,6 @@
         const paths = Array.isArray(i.paths) ? i.paths : typeof i.paths === 'string' ? [i.paths] : [];
         return paths.map((p) => String(p).split('/').pop()).join(', ');
       }
-      case 'mcp__agentweb__click':
-        return `(${i.x}, ${i.y})${i.button && i.button !== 'left' ? ` · ${i.button}` : ''}${i.double ? ' · çift' : ''}`;
-      case 'mcp__agentweb__drag':
-        return `(${i.from_x}, ${i.from_y}) → (${i.to_x}, ${i.to_y})`;
-      case 'mcp__agentweb__scroll':
-        return `${i.direction || ''} · (${i.x}, ${i.y})`;
-      case 'mcp__agentweb__launch_app':
-        return APP_LABEL[i.app] || i.app || '';
       default: {
         const first = Object.values(i).find((v) => typeof v === 'string');
         return first || '';
@@ -711,13 +693,6 @@
     Task: 'Claude bir alt ajan başlatmak istiyor',
     Agent: 'Claude bir alt ajan başlatmak istiyor',
     Skill: 'Claude bir yetenek kullanmak istiyor',
-    mcp__agentweb__click: 'Claude sanal ekranda tıklamak istiyor',
-    mcp__agentweb__drag: 'Claude sanal ekranda sürükleme yapmak istiyor',
-    mcp__agentweb__type_text: 'Claude sanal ekrana yazı yazmak istiyor',
-    mcp__agentweb__press_keys: 'Claude sanal ekranda tuşa basmak istiyor',
-    mcp__agentweb__scroll: 'Claude sanal ekranda kaydırmak istiyor',
-    mcp__agentweb__focus_window: 'Claude bir pencereyi öne almak istiyor',
-    mcp__agentweb__launch_app: 'Claude sanal ekranda bir uygulama başlatmak istiyor',
   };
 
   // Claude Code's own prompt titles are English; known tools get a Turkish one.

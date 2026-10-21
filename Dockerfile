@@ -57,26 +57,6 @@ RUN curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chro
     && rm -f /tmp/chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
-# Sanal ekran (Ekran sekmesi; varsayilan kapali, AGENTWEB_DISPLAY=1 ile acilir):
-# Xvfb (ekran), openbox (pencere yoneticisi), x11vnc (tarayiciya goruntu),
-# xdotool + xclip + ImageMagick (Claude'un ekran araclari).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb \
-        x11vnc \
-        xdotool \
-        xclip \
-        imagemagick \
-        openbox \
-        x11-utils \
-        xauth \
-        dbus \
-        dbus-x11 \
-        xdg-utils \
-        desktop-file-utils \
-        fonts-liberation \
-        fonts-dejavu-core \
-    && rm -rf /var/lib/apt/lists/*
-
 # Playwright MCP (tarayici), surumu sabit. scripts/setup-mcp.js onu (ve Agent
 # Web'in kendi araclarini, GitHub MCP'yi) tum oturumlar icin tanimlar.
 RUN npm install -g @playwright/mcp@0.0.82 && npm cache clean --force
@@ -105,26 +85,17 @@ COPY scripts/claude-managed/ /etc/claude-code/
 COPY scripts/agentweb-profile.sh /etc/profile.d/agentweb.sh
 
 # Web arayuzunden yuklenen dosyalarda calistirma izni kaybolabilir; burada verilir.
-# /var/lib/agentweb: sanal ekrandaki tarayicinin profili (yerel disk).
-RUN chmod +x scripts/entrypoint.sh scripts/agentweb-mcp.js scripts/browser \
+RUN chmod +x scripts/entrypoint.sh scripts/agentweb-mcp.js \
         scripts/github-mcp-headers scripts/git-credential-github \
         scripts/mcp-tmp-guard scripts/mcp-tmp-guard.js \
-    && chmod 644 /etc/claude-code/CLAUDE.md /etc/claude-code/managed-settings.json /etc/profile.d/agentweb.sh \
-    && ln -sf /app/scripts/browser /usr/local/bin/agentweb-browser \
-    && install -Dm644 scripts/desktop/agentweb-browser.desktop /usr/share/applications/agentweb-browser.desktop \
-    && install -Dm644 scripts/desktop/mimeapps.list /usr/share/applications/mimeapps.list \
-    && update-desktop-database /usr/share/applications \
-    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix \
-    && mkdir -p /var/lib/agentweb
+    && chmod 644 /etc/claude-code/CLAUDE.md /etc/claude-code/managed-settings.json /etc/profile.d/agentweb.sh
 
 RUN mkdir -p /home/node/workspace \
-    && chown -R node:node /app /home/node /var/lib/agentweb
+    && chown -R node:node /app /home/node
 
 USER node
 ENV HOME=/home/node
 ENV PATH="/home/node/.local/bin:${PATH}"
-# xdg-open ve diger araclar web adreslerini sanal ekrandaki Chrome'da acar.
-ENV BROWSER=agentweb-browser
 # rtk hicbir zaman kullanim verisi gondermesin.
 ENV RTK_TELEMETRY_DISABLED=1
 

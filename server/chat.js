@@ -60,7 +60,7 @@ const MAX_TOOL_NAMES = 500;
 const SYSTEM_PATH_RE = /^\/(proc|sys|dev)(\/|$)/;
 // Harmless Agent Web tools (they only read, or hand a file to this same
 // user); asking every time would just be noise.
-const AUTO_ALLOW_TOOLS = new Set([SHARE_TOOL, 'mcp__agentweb__screenshot', 'mcp__agentweb__list_windows']);
+const AUTO_ALLOW_TOOLS = new Set([SHARE_TOOL]);
 
 const NO_XHIGH = ['low', 'medium', 'high', 'max'];
 
@@ -181,19 +181,14 @@ function looksLikeText(buf) {
 }
 
 // Appended to Claude Code's own system prompt for chat sessions.
-function webUiPrompt(displayAvailable, storage = {}) {
+function webUiPrompt(storage = {}) {
   const lines = [
-    `You are running inside Agent Web, a self-hosted web app (chat, terminal${displayAvailable ? ' and a virtual screen' : ''}) on a Linux container. The user reads your replies in the chat, often on a phone.`,
+    `You are running inside Agent Web, a self-hosted web app (chat and terminal) on a Linux container. The user reads your replies in the chat, often on a phone.`,
     '- To give the user a file (text, code, logs, CSV, documents, archives, images...), save it to disk and call the mcp__agentweb__share_file tool with its path: it shows up in the chat as a download card. Do this whenever the user asks you to send, share or give them a file, and prefer it over pasting very long content.',
     storage.persistent
       ? `- Storage: ${storage.home} and the session folders in ${storage.workspaceRoot} are on the Space's Storage Bucket and survive restarts; everything else, /tmp included, is reset.`
       : `- Storage: no Storage Bucket is attached, so everything here (${storage.home || 'HOME'} included) is lost when the Space restarts. If the user wants files, logins or MCP servers to last, tell them to attach a Storage Bucket at /data in the Space settings.`,
   ];
-  if (displayAvailable) {
-    lines.push(
-      '- A virtual X display is available (DISPLAY is already set). The user watches and controls it in the "Ekran" tab. GUI programs you start appear there; drive them with the mcp__agentweb__ screen tools (screenshot, click, type_text, press_keys, scroll, drag, list_windows, focus_window, launch_app). Screenshots are large; take one only when you need to see the screen.'
-    );
-  }
   return lines.join('\n');
 }
 
@@ -1840,11 +1835,11 @@ class ChatSession {
 }
 
 class ChatManager {
-  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, displayAvailable, persistent, publicUrl, spaceHost }) {
+  constructor({ home, workspaceRoot, childEnv, ensureWorkspace, persistent, publicUrl, spaceHost }) {
     this.workspaceRoot = workspaceRoot;
     this.childEnv = childEnv;
     this.ensureWorkspace = ensureWorkspace;
-    this.systemPromptAppend = webUiPrompt(!!displayAvailable, { persistent: !!persistent, home, workspaceRoot });
+    this.systemPromptAppend = webUiPrompt({ persistent: !!persistent, home, workspaceRoot });
     // Where OAuth providers send the browser back to: an explicit public URL,
     // else the origin the page was opened from, else the Space's own host.
     this.publicUrl = normalizeOrigin(publicUrl);

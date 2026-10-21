@@ -22,7 +22,7 @@
 | `SESSION_SECRET` | Önerilir | Giriş cookie'sini imzalamak için rastgele bir metin (örnek: `openssl rand -hex 32` çıktısı). Girmezseniz her yeniden başlatmada geçici olarak üretilir ve her restart'ta yeniden parola girmeniz gerekir. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Opsiyonel | Aşağıda "Claude kimlik doğrulama" B yöntemine bakın. |
 | `ANTHROPIC_API_KEY` | Opsiyonel | Abonelik yerine API key ile (kullandıkça ödemeli) çalışmak isterseniz. Tanımlıysa sohbet ve terminal abonelik yerine bunu kullanır. |
-| `GITHUB_TOKEN` | Opsiyonel | GitHub için kişisel erişim token'ı (bkz. bölüm 6). GitHub MCP, `gh` ve `git push` bunu kullanır. Terminal'den `gh auth login` yapacaksanız gerekmez. |
+| `GITHUB_TOKEN` | Opsiyonel | GitHub için kişisel erişim token'ı (bkz. bölüm 5). GitHub MCP, `gh` ve `git push` bunu kullanır. Terminal'den `gh auth login` yapacaksanız gerekmez. |
 
 Bu değerleri **Secret** olarak ekleyin, **Variable** olarak değil (Variable'lar
 herkese açık okunur ve Space kopyalandığında taşınır). `APP_PASSWORD` ve
@@ -33,10 +33,8 @@ aktarılmaz.
 
 | İsim | Varsayılan | Açıklama |
 |---|---|---|
-| `AGENTWEB_DISPLAY` | kapalı | `1` yapılırsa sanal ekran ve **Ekran** sekmesi açılır (bkz. bölüm 5). |
-| `SCREEN_RESOLUTION` | `1440x900` | Sanal ekranın çözünürlüğü. |
-| `AGENTWEB_RTK` | açık | `0` yapılırsa rtk (Bash çıktısı kısaltma) tamamen kapanır (bkz. bölüm 9). |
-| `AGENTWEB_MCP_GUARD` | açık | `0` yapılırsa Claude'un MCP sunucusunu `/tmp`'deki bir yolla kaydetmesi engellenmez (bkz. bölüm 8). |
+| `AGENTWEB_RTK` | açık | `0` yapılırsa rtk (Bash çıktısı kısaltma) tamamen kapanır (bkz. bölüm 8). |
+| `AGENTWEB_MCP_GUARD` | açık | `0` yapılırsa Claude'un MCP sunucusunu `/tmp`'deki bir yolla kaydetmesi engellenmez (bkz. bölüm 7). |
 | `AGENTWEB_PUBLIC_URL` | — | Space'i kendi alan adınızla kullanıyorsanız (ör. `https://agent.example.com`), MCP girişlerinden dönüş adresi. Normalde gerekmez. |
 
 ## 3. Claude kimlik doğrulama
@@ -145,49 +143,7 @@ Kaynak: [Claude Code kimlik doğrulama dokümantasyonu](https://code.claude.com/
 - Bilgisayarda **Enter** gönderir, **Shift+Enter** yeni satır açar; telefonda
   Enter yeni satırdır, gönder düğmesini kullanın.
 
-## 5. Sanal ekran (Ekran sekmesi, isteğe bağlı)
-
-Sanal ekran **varsayılan olarak kapalıdır**: Claude'un ekran araçları her
-ekran görüntüsünde binlerce token harcar ve kullanım limitini hızla doldurur.
-Gerekirse Space **Settings > Variables** kısmına `AGENTWEB_DISPLAY=1`
-ekleyin; Space yeniden başlayınca üst çubukta **Ekran** sekmesi görünür.
-Kapalıyken sekme gizlidir ve Claude'a ekran araçları hiç sunulmaz.
-
-Açıldığında konteynerde bir sanal ekran (Xvfb, varsayılan 1440×900) çalışır.
-Claude'un ve terminalin açtığı grafik programlar (ör. tarayıcı) bu ekrana
-çizilir. **Ekran** sekmesi onu canlı gösterir ve kontrol etmeni sağlar
-(noVNC; görüntü yalnızca parolalı oturumundan, Space'in kendi adresi
-üzerinden gelir).
-
-- **Telefonda:** Dokun = tıkla, iki parmakla dokun = sağ tık, iki parmakla
-  sürükle = fare tekerleği. **1:1** düğmesi görüntüyü gerçek boyuta getirir;
-  bu modda tek parmakla sürükleyerek görüntüyü kaydırırsın (dokunmak yine
-  tıklar). **Sığdır** tüm ekranı sekmeye sığdırır; bu modda tek parmakla
-  sürüklemek fareyle sürüklemek demektir. Telefonu yatay tutmak işi
-  kolaylaştırır.
-- **Klavye:** Telefonda **Klavye** düğmesi bir yazı kutusu açar: yazıp **Yaz**
-  dersen metin tuş tuş gönderilir; **Yapıştır** metni uzak panoya koyup
-  Ctrl+V'ye basar (uzun ya da Türkçe karakterli metinler için daha
-  güvenilir). **Tuşlar** satırında Esc, Tab, ⌫, Del, Enter, oklar, F5 ve
-  basılı kalan Ctrl/Alt/Shift vardır (ör. Ctrl'ye dokunup Klavye'den `s`
-  yazınca Ctrl+S gider). Bilgisayarda görüntüye tıklayıp doğrudan klavyeyi
-  kullanabilirsin.
-- **Menü:** tarayıcıyı başlatma; uzak panodaki metni kopyalama; yeniden
-  bağlanma ve ekranı yeniden başlatma (açık tüm pencereleri kapatır).
-- **Claude'un ekran araçları:** `agentweb` MCP sunucusu Claude'a ekran
-  görüntüsü alma, tıklama, sürükleme, yazma, tuşa basma, kaydırma, pencere
-  listeleme/öne alma ve uygulama başlatma araçları verir. Ekran görüntüsü ve
-  pencere listesi sormadan çalışır; ekranı değiştiren araçlar izin kartı
-  çıkarır ("Her zaman izin ver" ile o oturum için kalıcı yapabilirsin).
-- `SCREEN_RESOLUTION` (ör. `1280x800`) ekranın boyutunu belirler; ekran kartı
-  olmadığı için büyük çözünürlük yavaşlatır.
-
-> Roblox Studio (Vinegar) desteği kaldırıldı: Studio'nun her tıklamadan önce
-> ekran görüntüsü isteyen MCP'si limiti çok hızlı tüketiyordu. Eski sürümün
-> kalıcı HOME'da bıraktığı Roblox/Vinegar verisi (Roblox giriş yedeği dahil)
-> ilk açılışta otomatik silinir; `robloxstudio` MCP tanımı da kaldırılır.
-
-## 6. GitHub ve giriş isteyen MCP sunucuları
+## 5. GitHub ve giriş isteyen MCP sunucuları
 
 ### GitHub (MCP, `gh` ve `git push`)
 
@@ -234,7 +190,7 @@ Notlar:
   açılışta bu tanıma çevrilir. Kaldırmak için:
   `claude mcp remove github -s user`.
 - GitHub MCP'nin araçları çoktur ama Claude Code araç tanımlarını gerektiğinde
-  yükler (bkz. bölüm 9); bağlı olması her mesajda büyük bir maliyet getirmez.
+  yükler (bkz. bölüm 8); bağlı olması her mesajda büyük bir maliyet getirmez.
 
 ### Giriş isteyen diğer MCP sunucuları (OAuth)
 
@@ -260,7 +216,7 @@ claude.ai'ın kendi sayfasında bağlanır; bitince **Yeniden bağlan**.
 giriş cookie'si gönderilmez); yalnızca uygulamadan başlatılmış, süresi
 dolmamış (15 dakika) bir girişin tek kullanımlık `state` değerini kabul eder.
 
-## 7. Kalıcılık (Storage Bucket)
+## 6. Kalıcılık (Storage Bucket)
 
 Bucket bağlı değilse **hiçbir şey** (giriş bilgisi, sohbet geçmişi, MCP
 ayarları, proje dosyaları) bir sonraki restart'ta hayatta kalmaz —
@@ -292,7 +248,7 @@ Neyin kalıcı olduğu:
 ve `uv tool install` `~/.local`'e kurar (`~/.local/bin` PATH'te; sohbetteki
 Claude'da ve Terminal'de). `npx`/`uvx` önbellekleri de `$HOME`'dadır.
 
-## 8. MCP sunucuları
+## 7. MCP sunucuları
 
 ### Sunucu listesi nereden geliyor?
 
@@ -349,8 +305,8 @@ Aynı şekilde iki sunucu daha tüm oturumlara tanımlanır:
 
 | İsim | Ne yapar |
 |---|---|
-| `agentweb` | Agent Web'in kendi araçları: `share_file` (sohbete dosya gönderme); sanal ekran açıksa ekran araçları da (bkz. bölüm 5). |
-| `github` | GitHub MCP, token ile (bkz. bölüm 6). Token yoksa *Giriş gerekli* görünür; zararsızdır. |
+| `agentweb` | Agent Web'in kendi araçları: `share_file` (sohbete dosya gönderme). |
+| `github` | GitHub MCP, token ile (bkz. bölüm 5). Token yoksa *Giriş gerekli* görünür; zararsızdır. |
 
 Eski sürümün eklediği `robloxstudio` tanımı, değiştirilmemişse ilk açılışta
 kaldırılır. Bu üç hazır sunucu da kaldırılabilir; kaldırdığınız restart'tan
@@ -361,7 +317,7 @@ sonra geri eklenmez.
 Sohbette model düğmesine dokunup **MCP sunucuları** satırını açın: her
 sunucunun durumu (Bağlı / Hata / Giriş gerekli), kapsamı ve hata mesajı
 görünür. Hatalı bir sunucuyu **Yeniden bağlan** ile tekrar deneyebilir, giriş
-isteyenlere **Giriş yap** ile bağlanabilirsiniz (bölüm 6). Claude o an
+isteyenlere **Giriş yap** ile bağlanabilirsiniz (bölüm 5). Claude o an
 çalışmıyorsa **Claude'u başlat ve güncel durumu al** mesaj göndermeden
 başlatır.
 
@@ -453,14 +409,13 @@ yapılandırmada `${DEGISKEN_ADI}` biçiminde referans verin (Claude Code
 açar). `npx`/`uvx` ile çalışan MCP sunucuları ilk çalıştırmada paketi
 otomatik indirir (443 üzerinden).
 
-## 9. Token tasarrufu
+## 8. Token tasarrufu
 
 Hiçbiri Claude'un gördüğü bilgiyi azaltmaz:
 
 - **Kaldırılan yükler:** Roblox Studio MCP (her istekte binlerce token'lık
-  talimat ve araç listesi) ve tekrarlayan `filesystem` sunucusu kaldırıldı;
-  sanal ekran kapalıyken ekran araçları ve ekranla ilgili sistem notu hiç
-  gönderilmez.
+  talimat ve araç listesi), tekrarlayan `filesystem` sunucusu ve ekran
+  araçları kaldırıldı.
 - **Claude Code'un kendi varsayılanları (ayar gerekmez):** MCP araçlarının
   tanımları her istekte gönderilmez, Claude gerektiğinde arayıp yükler (tool
   search). Abonelikle (claude.ai girişi) kullanırken Claude Code ana
@@ -483,7 +438,7 @@ Hiçbiri Claude'un gördüğü bilgiyi azaltmaz:
   `rtk gain` gösterir. rtk izin sorma akışını değiştirmez: komut yine izin
   kartıyla sorulur (kartta komutun başında `rtk` görünür).
 
-## 10. Ağ kısıtlaması
+## 9. Ağ kısıtlaması
 
 HF Space'lerin dışarı giden trafiği sadece **80, 443, 8080** portlarına
 gidebilir. Pratikte:
@@ -491,10 +446,10 @@ gidebilir. Pratikte:
 - Çalışır: HTTP(S) API'ler, `git clone https://...`, npm/pip/uvx paket
   kurulumu, HTTP/SSE tabanlı veya stdio+HTTPS çağrılı MCP sunucuları.
 - Çalışmaz: `ssh://` git remote'ları, doğrudan veritabanı portları (5432,
-  6379, ...), özel TCP/UDP protokolleri. Bu tür bir ihtiyaç için Cloudflare
-  Tunnel veya Tailscale gibi 443 üzerinden tünelleyen bir katman kullanın.
+  6379, ...), özel TCP/UDP protokolleri. Bu kısıtlama platformun kuralıdır;
+  Agent Web bunu aşmaya çalışmaz ve aşmak için bir araç içermez.
 
-## 11. Sorun giderme
+## 10. Sorun giderme
 
 - **Space açılmıyor / hemen kapanıyor:** Space'in **Logs** sekmesine bakın;
   `entrypoint.sh` ve sunucu açıklayıcı Türkçe mesajlar yazar (özellikle
@@ -516,15 +471,10 @@ gidebilir. Pratikte:
 - **Terminalde `claude` bulunamıyor:** Docker imajında `npm install -g
   @anthropic-ai/claude-code` build aşamasında çalışır; build loglarını
   kontrol edin.
-- **Ekran sekmesi "Bu kurulumda sanal ekran yok" diyor:** Space eski
-  Dockerfile ile build edilmiş. Settings > **Factory rebuild** yapın.
-- **Ekran sekmesi sürekli "yeniden bağlanılıyor":** Menü → **Ekranı yeniden
-  başlat**. Düzelmezse terminalde `cat /tmp/agentweb-logs/xvfb.log
-  /tmp/agentweb-logs/vnc.log` çıktısına bakın.
 - **GitHub MCP *Giriş gerekli* ya da 401 hatası:** Token yok ya da geçersiz.
   Terminal'de `gh auth status` ile kontrol edin; `gh auth login` yapın ya da
   `GITHUB_TOKEN` secret'ını yenileyin, sonra MCP ekranında **Yeniden bağlan**
-  (bölüm 6). "dynamic client registration" hatası GitHub'ın OAuth'u
+  (bölüm 5). "dynamic client registration" hatası GitHub'ın OAuth'u
   desteklememesinden gelir; token yolunu kullanın.
 - **`git push` parola soruyor / 403:** Token'ın o depoya *Contents: Read and
   write* izni olmalı. `git config --global --get-all
@@ -536,8 +486,8 @@ gidebilir. Pratikte:
 - **Eklediğim MCP sunucusu her restart'ta bozuluyor ("/tmp'den silinmiş"):**
   Sunucu `/tmp`'ye kurulmuş; `/tmp` her yeniden başlatmada silinir. MCP
   ekranında sunucunun yanındaki **Kalıcı kur**'a dokunup sohbete düşen mesajı
-  gönderin; Claude onu `~/mcp-servers/<ad>` altına kurar (bkz. bölüm 8).
+  gönderin; Claude onu `~/mcp-servers/<ad>` altına kurar (bkz. bölüm 7).
   Storage Bucket bağlı değilse `$HOME` da silinir; önce bucket bağlayın
-  (bölüm 7).
+  (bölüm 6).
 - **rtk'nin bir komutu bozduğunu düşünüyorsanız:** Komutun başına
   `RTK_DISABLED=1` ekleyin ya da rtk'yi `AGENTWEB_RTK=0` ile kapatın.

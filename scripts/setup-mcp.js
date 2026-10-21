@@ -15,11 +15,11 @@ const { tempPathOf } = require(path.join(__dirname, 'temp-paths.js'));
 // playwright: Google Chrome is installed in the image (see Dockerfile). The
 // container has no user namespaces, so the browser runs without Chrome's own
 // sandbox (Playwright MCP enables it by default for the chrome channel), and
-// headless so it never depends on the virtual screen. --isolated keeps each
+// headless (the container has no screen). --isolated keeps each
 // session's browser profile in memory, so parallel sessions never fight over
 // one profile directory.
 //
-// agentweb: Agent Web's own tools (share_file, virtual screen control).
+// agentweb: Agent Web's own tool (share_file).
 //
 // github: GitHub's remote MCP server. It has no OAuth client registration for
 // other apps, so a sign-in from Claude Code can never complete; it takes a

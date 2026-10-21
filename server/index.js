@@ -6,7 +6,6 @@ const { WebSocketServer } = require('ws');
 const auth = require('./auth');
 const { SessionManager, isValidName } = require('./sessions');
 const { ChatManager } = require('./chat');
-const { DisplayManager } = require('./display');
 
 const PORT = parseInt(process.env.PORT || '7860', 10);
 const HOME = process.env.HOME || '/home/node';
@@ -26,14 +25,7 @@ const baseEnv = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'agent-web/1.0' }
 delete baseEnv.APP_PASSWORD;
 delete baseEnv.SESSION_SECRET;
 
-// Sanal ekran (Ekran sekmesi, AGENTWEB_DISPLAY=1 ile acilir): Claude'un ve
-// terminalin actigi pencereler (tarayici...) DISPLAY uzerinden buraya cizilir.
-const display = new DisplayManager({ env: baseEnv });
-const childEnv = { ...baseEnv, ...display.childEnv() };
-// The image points BROWSER at Chrome on the virtual screen; without the
-// screen there is nowhere to show it, so tools (gh, xdg-open) just print the
-// address instead of trying to start a browser.
-if (!display.available && childEnv.BROWSER === 'agentweb-browser') delete childEnv.BROWSER;
+const childEnv = { ...baseEnv };
 
 const sessionManager = new SessionManager({
   workspaceRoot: WORKSPACE_ROOT,
@@ -47,7 +39,6 @@ const chatManager = new ChatManager({
   workspaceRoot: WORKSPACE_ROOT,
   childEnv,
   ensureWorkspace: (name) => sessionManager.ensureWorkspace(name),
-  displayAvailable: display.available,
   // Set by scripts/entrypoint.sh: a Storage Bucket keeps HOME and the sessions.
   persistent: process.env.AGENTWEB_PERSISTENT === '1',
   publicUrl: process.env.AGENTWEB_PUBLIC_URL || '',
@@ -94,9 +85,6 @@ app.disable('x-powered-by');
 
 app.use('/vendor/xterm', express.static(path.join(NODE_MODULES, '@xterm', 'xterm')));
 app.use('/vendor/xterm-addon-fit', express.static(path.join(NODE_MODULES, '@xterm', 'addon-fit')));
-// noVNC ships plain ES modules (core/rfb.js and what it imports).
-app.use('/vendor/novnc/core', express.static(path.join(NODE_MODULES, '@novnc', 'novnc', 'core')));
-app.use('/vendor/novnc/vendor', express.static(path.join(NODE_MODULES, '@novnc', 'novnc', 'vendor')));
 app.get('/vendor/lib/:file', (req, res) => {
   const rel = VENDOR_FILES[req.params.file];
   if (!rel) return res.sendStatus(404);
@@ -212,35 +200,6 @@ app.get('/api/files/:name/:id', (req, res) => {
   res.sendFile(file.abs);
 });
 
-app.get('/api/display', (req, res) => {
-  res.json(display.status());
-});
-
-app.post('/api/display/start', async (req, res) => {
-  try {
-    await display.ensure();
-    res.json(display.status());
-  } catch (err) {
-    res.status(503).json({ ...display.status(), error: err.message });
-  }
-});
-
-app.post('/api/display/restart', async (req, res) => {
-  try {
-    res.json(await display.restart());
-  } catch (err) {
-    res.status(503).json({ ...display.status(), error: err.message });
-  }
-});
-
-app.post('/api/display/launch', async (req, res) => {
-  try {
-    res.json(await display.launch(String((req.body || {}).app || '')));
-  } catch (err) {
-    res.status(err.status || 503).json({ error: err.message });
-  }
-});
-
 app.delete('/api/sessions/:name', (req, res) => {
   const { name } = req.params;
   if (!isValidName(name)) {
@@ -254,12 +213,6 @@ app.delete('/api/sessions/:name', (req, res) => {
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
-// noVNC may ask for the "binary" subprotocol (websockify convention).
-const vncWss = new WebSocketServer({
-  noServer: true,
-  maxPayload: 4 * 1024 * 1024,
-  handleProtocols: (protocols) => (protocols.has('binary') ? 'binary' : false),
-});
 
 server.on('upgrade', (req, socket, head) => {
   let pathname;
@@ -267,16 +220,6 @@ server.on('upgrade', (req, socket, head) => {
     pathname = new URL(req.url, 'http://placeholder').pathname;
   } catch {
     socket.destroy();
-    return;
-  }
-  // Two path segments, so it can never collide with a session called "display".
-  if (pathname === '/ws/display/vnc') {
-    if (!auth.isAuthenticated(req) || !display.available) {
-      socket.write(`HTTP/1.1 ${display.available ? '401 Unauthorized' : '503 Service Unavailable'}\r\n\r\n`);
-      socket.destroy();
-      return;
-    }
-    vncWss.handleUpgrade(req, socket, head, (ws) => display.attachVnc(ws));
     return;
   }
   const match = pathname.match(/^\/ws\/(chat\/)?([A-Za-z0-9_-]{1,32})$/);
@@ -344,16 +287,4 @@ function attachTerminal(ws, name) {
 server.listen(PORT, () => {
   console.log(`[server] Agent Web ${PORT} portunda dinliyor`);
   console.log(`[server] HOME=${HOME} WORKSPACE_ROOT=${WORKSPACE_ROOT}`);
-  if (display.available) {
-    // Started right away so GUI programs Claude opens always have a screen;
-    // VNC itself only starts when someone opens the Ekran tab.
-    display
-      .ensure()
-      .then(() => console.log(`[display] Sanal ekran hazir (DISPLAY=${display.display}, ${display.resolution})`))
-      .catch((err) => console.error('[display]', err.message));
-  } else if (display.disabled) {
-    console.log('[display] Sanal ekran kapali (acmak icin AGENTWEB_DISPLAY=1); Ekran sekmesi gizli.');
-  } else {
-    console.log('[display] Xvfb kurulu degil; Ekran sekmesi kullanilamaz.');
-  }
 });

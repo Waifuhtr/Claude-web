@@ -46,10 +46,6 @@ dosya okuma/düzenleme, komut çalıştırma, web erişimi ve MCP sunucuları.
   bir kez `gh auth login` (telefonda kodla giriş) ya da `GITHUB_TOKEN` secret'ı.
 - **Hazır tarayıcı:** İmajda Google Chrome ve Playwright MCP kurulu gelir;
   her oturumda elle ayar yapmadan web sayfalarında gezinebilir.
-- **Ekran sekmesi (sanal ekran, isteğe bağlı):** `AGENTWEB_DISPLAY=1` ile
-  açılır; konteynerdeki sanal masaüstünü canlı gösterir, telefondan dokunarak
-  kontrol edilir ve Claude da aynı ekranı görüp kullanabilir. Ekran
-  görüntüleri çok token harcadığı için varsayılan olarak kapalıdır.
 - **Token tasarrufu (bilgi kaybı olmadan):** Kullanılmayan araçlar
   yüklenmez, tekrarlayan araç tanımları kaldırıldı; rtk yalnızca çıktısı
   kayıpsız kısalabilen komutlarda (git status, npm script'leri) devrededir.
@@ -76,9 +72,9 @@ Kurulum, secret'lar, Claude girişi, sohbet ayarları ve MCP için
 HF Space'lerde dışarı giden trafik sadece **80, 443 ve 8080** portlarına
 gidebilir; başka porta giden istekler platform tarafında engellenir. HTTP(S)
 tabanlı MCP sunucuları ve git/npm/pip https üzerinden çalışır; ham TCP
-gerektiren entegrasyonlar (doğrudan veritabanı portu, ssh://git vb.) için
-Cloudflare Tunnel / Tailscale gibi 443 üzerinden tünelleyen bir çözüm
-gerekir. Ayrıntı: `docs/SETUP.md`.
+gerektiren entegrasyonlar (doğrudan veritabanı portu, ssh://git vb.)
+çalışmaz. Bu platformun kuralıdır; Agent Web onu aşmaya çalışmaz. Ayrıntı:
+`docs/SETUP.md`.
 
 > Bu proje Anthropic'in resmi bir ürünü değildir; Claude Agent SDK ile
 > yapılmış, kendi hesabınızla kişisel kullanım için bir arayüzdür.
